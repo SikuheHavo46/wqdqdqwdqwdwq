@@ -3,3 +3,4 @@ cand/
 out/*
 !out/navprofr-motion.mp4
 __pycache__/
+site/

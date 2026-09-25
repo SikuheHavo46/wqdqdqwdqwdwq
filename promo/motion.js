@@ -1,12 +1,11 @@
 'use strict';
 // ---------- timing ----------
-const BPM = 120, BEAT = 60 / BPM, BARS = 7, T = BARS * 4 * BEAT; // 14 s
+const BPM = 120, BEAT = 60 / BPM, BARS = 10, T = BARS * 4 * BEAT; // 20 s
 const b = n => n * BEAT;
 const wrap = t => ((t % T) + T) % T;
 const clamp = (x, a = 0, c = 1) => Math.min(c, Math.max(a, x));
 const mix = (a, c, k) => a + (c - a) * k;
 const easeOut = x => 1 - Math.pow(1 - clamp(x), 3);
-const easeInOut = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
 
 // Closed-form step response of a damped spring (0 -> 1). zeta >= 0.82 keeps overshoot under ~1%.
 function step(tau, w, z) {
@@ -15,11 +14,10 @@ function step(tau, w, z) {
   const wd = w * Math.sqrt(1 - z * z);
   return 1 - Math.exp(-z * w * tau) * (Math.cos(wd * tau) + (z * w / wd) * Math.sin(wd * tau));
 }
-// color is critically damped and quick so black <-> white swaps don't linger in mid-gray
-const SP = { shape: [16, .86], cam: [11, 1], curX: [15, .9], curY: [12.5, .9], fast: [26, .9], lead: [30, .9], lag: [13, .88], ui: [20, .86], color: [34, 1] };
+const SP = { shape: [15, .87], cam: [10, 1], curX: [15, .9], curY: [12.5, .9], fast: [26, .9], lead: [30, .9], lag: [13, .88], ui: [20, .86], color: [30, 1] };
 
-// A track is a sum of one spring per target change. The value before the first event equals the
-// last target and the previous cycle's springs are included, so f(0) === f(T), velocity included.
+// A track is a sum of one spring per target change. Before the first event the value equals the last
+// target, and the previous cycle's springs are included, so f(0) === f(T), velocity included.
 function track(evs, def = SP.shape) {
   evs = evs.slice().sort((p, q) => p[0] - q[0]);
   const n = evs.length, arr = Array.isArray(evs[0][1]);
@@ -39,56 +37,33 @@ function track(evs, def = SP.shape) {
     return v;
   };
 }
-// Content swap: exit (0.09 s) ends before enter (delay 0.09 s) starts, so swapped text never overlaps.
+// Enter/exit envelope. Exit (dOut) finishes before a replacement's enter delay (dIn), so swaps never overlap.
 function vis(t, tin, tout, dIn = .09, durIn = .22, dOut = .09) {
   const f = x => {
     const e = easeOut((x - tin - dIn) / durIn), q = clamp((x - tout) / dOut);
-    return { o: e * (1 - q), bl: 12 * (1 - e) + 10 * q, s: .95 + .05 * e - .03 * q };
+    return { o: e * (1 - q), bl: 12 * (1 - e) + 10 * q, s: .96 + .04 * e - .03 * q };
   };
   const t0 = wrap(t);
   return [f(t0), f(t0 + T), f(t0 - T)].reduce((m, x) => (x.o > m.o ? x : m));
 }
 const rgb = c => `rgb(${c.map(v => Math.round(clamp(v, 0, 255))).join(',')})`;
+const blur = (el, px) => { el.style.filter = px > .05 ? `blur(${px.toFixed(2)}px)` : 'none'; };
+function show(el, v, k = 1) { el.style.opacity = v.o.toFixed(4); blur(el, v.bl * k); el.style.visibility = v.o > .001 ? '' : 'hidden'; } // '' inherits, so a hidden screen hides its children
 
-// ---------- design tokens ----------
-const ACC = [0, 113, 227], INK = [17, 17, 17], BLK = [0, 0, 0], WHT = [255, 255, 255];
-const SW = 4.5; // screen-px stroke for every line icon
-const S = { // size on screen at rest (px) and the camera scale that frames it
-  btn: { W: 560, H: 168, R: 84, S: 2.8, bg: INK },
-  load: { W: 168, H: 168, R: 84, S: 2.8, bg: INK },
-  check: { W: 192, H: 192, R: 96, S: 3.0, bg: ACC },
-  island: { W: 860, H: 160, R: 80, S: 2.6, bg: BLK },
-  player: { W: 1040, H: 520, R: 72, S: 2.0, bg: INK },
-  slider: { W: 1000, H: 160, R: 80, S: 2.3, bg: WHT },
-  toggle: { W: 360, H: 208, R: 104, S: 4.0, bg: INK },
-  tabs: { W: 1080, H: 168, R: 84, S: 2.4, bg: WHT },
-  chart: { W: 1120, H: 860, R: 64, S: 1.6, bg: WHT },
-  key: { W: 280, H: 280, R: 64, S: 4.0, bg: INK },
-  pal: { W: 1040, H: 682, R: 48, S: 2.0, bg: WHT },
-  toast: { W: 960, H: 168, R: 84, S: 2.4, bg: INK },
-};
-const wW = k => S[k].W / S[k].S, wH = k => S[k].H / S[k].S, wR = k => S[k].R / S[k].S;
-// Extra camera zoom per state on top of S. Content still rasterises at its final scale (no will-change).
-const Z = { btn: 1.3, load: 1.35, check: 1.3, island: 1.22, player: 1.14, slider: 1.12, toggle: 1.25, tabs: 1.14, chart: 1.1, key: 1.25, pal: 1.1, toast: 1.2 };
-
-// ---------- icons (24-grid, stroke normalised to SW screen px) ----------
+// ---------- tokens (from navprofr.ru computed styles) ----------
+const ACC = [0, 113, 227], ACC_OFF = [153, 199, 241], WHT = [255, 255, 255];
+const SW = 4; // screen-px stroke for every line icon
 const IC = {
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
-  compass: '<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>',
-  search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
-  briefcase: '<rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M8.5 7V5.5A1.5 1.5 0 0 1 10 4h4a1.5 1.5 0 0 1 1.5 1.5V7M3 12.5h18"/>',
-  route: '<circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18H16a3 3 0 0 0 0-6H8a3 3 0 0 1 0-6h7.5"/>',
-  flask: '<path d="M9.5 3.5h5M10.5 3.5v5.5L5 18.5A1.5 1.5 0 0 0 6.3 20.5h11.4a1.5 1.5 0 0 0 1.3-2L13.5 9V3.5M7.5 15h9"/>',
-  sparkle: '<path d="M12 3.5l1.9 5.6 5.6 1.9-5.6 1.9L12 18.5l-1.9-5.6L4.5 11l5.6-1.9z"/>',
-  enter: '<path d="M19 5v6a3 3 0 0 1-3 3H5M9 10l-4 4 4 4"/>',
-  cmd: '<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3z"/>',
-  spk: '<path d="M11 5.2L6.6 8.6H3.8a.8.8 0 0 0-.8.8v5.2a.8.8 0 0 0 .8.8h2.8l4.4 3.4z"/>',
-  w1: '<path d="M15.5 9a4.5 4.5 0 0 1 0 6"/>',
-  w2: '<path d="M18.5 6.2a8.5 8.5 0 0 1 0 11.6"/>',
+  cube: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>',
+  robot: '<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 8V4.5M9 13h.01M15 13h.01M9 16.5h6"/><circle cx="12" cy="4" r="1"/>',
+  game: '<path d="M7 8h10a4 4 0 0 1 4 4v1a4 4 0 0 1-7 2.6h-4A4 4 0 0 1 3 13v-1a4 4 0 0 1 4-4z"/><path d="M8 11v3M6.5 12.5h3M15.5 12h.01M17.5 13.5h.01"/>',
+  back: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
 };
-const icon = (n, px) =>
-  `<svg class="ln" width="${px}" height="${px}" viewBox="0 0 24 24" stroke-width="${(SW * 24 / px).toFixed(3)}">${IC[n]}</svg>`;
+const icon = (n, px, sw = SW) =>
+  `<svg class="ln" width="${px}" height="${px}" viewBox="0 0 24 24" stroke-width="${(sw * 24 / px).toFixed(3)}">${IC[n]}</svg>`;
 
 // ---------- DOM ----------
 const shape = document.getElementById('shape'), world = document.getElementById('world'), stage = document.getElementById('stage');
@@ -96,259 +71,308 @@ function add(parent, html, cls = 'c') {
   const d = document.createElement('div'); d.className = cls; d.innerHTML = html; parent.appendChild(d); return d;
 }
 const $ = (root, sel) => root.querySelector(sel);
-
-// Content layers are laid out in screen px and scaled 1/S, so they are 1:1 on screen at rest.
-const C = {};
-function content(key, html, w, h, z = 1) {
-  const el = add(shape, html); el.style.width = w + 'px'; el.style.height = h + 'px'; el.style.zIndex = z; C[key] = el; return el;
+const $$ = (root, sel) => [...root.querySelectorAll(sel)];
+const C = {}, CW = {};
+function content(key, html, w, h, parent = shape) {
+  const el = add(parent, `<div style="position:relative;width:${w}px;height:${h}px">${html}</div>`);
+  el.style.width = w + 'px'; el.style.height = h + 'px'; C[key] = el; CW[key] = [w, h]; return el;
 }
 
-content('btn', `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:20px;color:#fff">
-  <span style="font-size:56px;font-weight:600;letter-spacing:-.8px">Начать</span><span class="arr">${icon('arrow', 48)}</span></div>`, 560, 168);
+// ---- screens (laid out in screen px; each rests at camera scale S so it renders 1:1) ----
+const S = {
+  hero: { W: 360, H: 116, R: 58, S: 1, bg: ACC, cy: 250 },
+  reg: { W: 860, H: 1200, R: 56, S: 1, bg: WHT },
+  load: { W: 150, H: 150, R: 75, S: 2.2, bg: ACC },
+  done: { W: 640, H: 150, R: 75, S: 1.7, bg: ACC },
+  prof: { W: 1080, H: 900, R: 56, S: 1, bg: WHT },
+  diag: { W: 1080, H: 1000, R: 56, S: 1, bg: WHT },
+  calc: { W: 700, H: 150, R: 75, S: 1.6, bg: WHT },
+  res: { W: 1080, H: 960, R: 56, S: 1, bg: WHT },
+  trials: { W: 1080, H: 1180, R: 56, S: 1, bg: WHT },
+  modal: { W: 880, H: 1060, R: 56, S: 1, bg: WHT },
+  ok: { W: 900, H: 176, R: 88, S: 1.45, bg: ACC },
+  route: { W: 1000, H: 1060, R: 56, S: 1, bg: WHT },
+  chat: { W: 1000, H: 1200, R: 56, S: 1, bg: WHT },
+};
 
-content('load', `<svg width="168" height="168" viewBox="0 0 168 168">
-  <circle cx="84" cy="84" r="40" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="9"/>
-  <circle class="arc" cx="84" cy="84" r="40" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round" pathLength="1"/></svg>`, 168, 168);
+// hero page text lives outside the shape, around the "Начать" pill
+content('heroText', `
+  <div class="a lab" style="left:0;right:0;top:0;text-align:center;font-size:30px">Портал профориентации</div>
+  <div class="a" style="left:0;right:0;top:52px;text-align:center;font-size:168px;font-weight:700;letter-spacing:-7px;line-height:1">Карьерный</div>
+  <div class="a" style="left:0;right:0;top:220px;text-align:center;font-size:168px;font-weight:700;letter-spacing:-7px;line-height:1;color:#0071e3">навигатор</div>
+  <div class="a sub" style="left:0;right:0;top:432px;text-align:center;font-size:34px">От интереса к первому рабочему месту — один профиль.</div>`, 1300, 500, world);
+content('hero', `<div class="pill" style="width:100%;height:100%;color:#fff;font-size:38px;gap:14px">Начать <span class="arr">${icon('arrow', 36)}</span></div>`, 360, 116);
 
-content('check', `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#fff">
-  <svg class="ln" width="96" height="96" viewBox="0 0 24 24" stroke-width="${(SW * 1.35 * 24 / 96).toFixed(3)}"><path class="ck" pathLength="1" d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>`, 192, 192);
+content('reg', `
+  <div class="a lab" style="left:72px;top:76px">Карьерный навигатор</div>
+  <div class="a h1 tA" style="left:72px;top:118px">С возвращением</div>
+  <div class="a h1 tB" style="left:72px;top:118px">Начните свой путь</div>
+  <div class="a sub" style="left:72px;top:196px;width:700px">Создайте аккаунт: ваши цели и результаты будут сохраняться в профиле.</div>
+  <div class="a seg" style="left:72px;top:318px;width:716px;height:78px;border-radius:18px;background:#f5f5f7">
+    <div class="a knob" style="top:6px;height:66px;border-radius:13px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.08),0 3px 10px rgba(0,0,0,.08)"></div>
+    <div class="a s0" style="left:0;width:358px;top:0;height:78px;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:500">Войти</div>
+    <div class="a s1" style="left:358px;width:358px;top:0;height:78px;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:500">Создать аккаунт</div></div>
+  <div class="a fl" style="left:72px;top:436px">Как к вам обращаться?</div>
+  <div class="a inp f0" style="left:72px;top:474px;width:716px"><span class="ph">Ваше имя</span><span class="v"></span><i class="caret"></i></div>
+  <div class="a fl" style="left:72px;top:582px">Логин</div>
+  <div class="a inp f1" style="left:72px;top:620px;width:716px"><span class="ph">Например, alex_2026</span><span class="v"></span><i class="caret"></i></div>
+  <div class="a fl" style="left:72px;top:728px">Пароль</div>
+  <div class="a inp f2" style="left:72px;top:766px;width:716px"><span class="ph"></span><span class="v" style="letter-spacing:4px"></span><i class="caret"></i></div>
+  <div class="a fl" style="left:72px;top:874px">Я здесь как</div>
+  ${['Участник', 'Наставник', 'Родитель'].map((s, i) => `<div class="a chip role r${i}" style="left:${72 + i * 244}px;top:912px;width:228px;height:74px">${s}</div>`).join('')}
+  <div class="a pill sb" style="left:72px;top:1030px;width:716px;height:88px;font-size:28px;color:#fff">Создать аккаунт</div>
+  <div class="a" style="left:72px;top:1136px;width:716px;font-size:19px;color:#86868b;line-height:1.35">Это аккаунт Карьерного навигатора, не «Работы России».</div>`, 860, 1200);
 
-content('island', `<div style="width:100%;height:100%;display:flex;align-items:center;color:#fff">
-  <div style="width:104px;height:104px;border-radius:52px;background:${rgb(ACC)};margin-left:28px;display:flex;align-items:center;justify-content:center">${icon('compass', 56)}</div>
-  <div style="margin-left:26px;flex:1"><div style="font-size:40px;font-weight:600;letter-spacing:-.4px">Диагностика</div>
-  <div style="font-size:28px;color:#8E8E93;margin-top:4px">12 вопросов · 5 минут</div></div>
-  <div class="eq" style="display:flex;align-items:center;gap:9px;margin-right:52px;height:64px">${'<i style="display:block;width:9px;border-radius:5px;background:#fff"></i>'.repeat(5)}</div></div>`, 860, 160);
+content('load', `<svg width="150" height="150" viewBox="0 0 150 150">
+  <circle cx="75" cy="75" r="34" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="8"/>
+  <circle class="arc" cx="75" cy="75" r="34" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" pathLength="1"/></svg>`, 150, 150);
 
-const PLAY = [[[14, 6], [32, 17.5], [32, 46.5], [14, 58]], [[32, 17.5], [54, 32], [54, 32], [32, 46.5]]];
-const PAUSE = [[[13, 7], [26, 7], [26, 57], [13, 57]], [[38, 7], [51, 7], [51, 57], [38, 57]]];
-content('player', `<div style="position:relative;width:100%;height:100%;color:#fff">
-  <div class="abs" style="left:56px;top:56px;width:176px;height:176px;border-radius:34px;background:${rgb(ACC)};display:flex;align-items:center;justify-content:center">${icon('compass', 84)}</div>
-  <div class="abs" style="left:268px;top:84px;font-size:46px;font-weight:600;letter-spacing:-.6px">Диагностика интересов</div>
-  <div class="abs" style="left:268px;top:146px;font-size:32px;color:#8E8E93">Вопрос 4 из 12 · Карьерный навигатор</div>
-  <div class="abs" style="left:56px;top:285px;width:928px;height:10px;border-radius:5px;background:#3A3A3C;overflow:hidden"><div class="fill" style="height:100%;background:#fff;width:0"></div></div>
-  <div class="abs knob" style="left:0;top:276px;width:28px;height:28px;border-radius:50%;background:#fff;transform-origin:50% 50%"></div>
-  <div class="abs tl" style="left:56px;top:318px;font-size:28px;color:#8E8E93">0:00</div>
-  <div class="abs tr" style="right:56px;top:318px;font-size:28px;color:#8E8E93">-0:00</div>
-  <svg class="abs" style="left:304px;top:406px" width="48" height="48" viewBox="0 0 48 48"><path fill="#fff" stroke="#fff" stroke-width="3" stroke-linejoin="round" d="M9 9h5v30H9zM40 9L18 24l22 15z"/></svg>
-  <svg class="abs pp" style="left:484px;top:394px;transform-origin:36px 36px" width="72" height="72" viewBox="0 0 64 64"><path fill="#fff" stroke="#fff" stroke-width="4" stroke-linejoin="round"/></svg>
-  <svg class="abs" style="left:688px;top:406px" width="48" height="48" viewBox="0 0 48 48"><path fill="#fff" stroke="#fff" stroke-width="3" stroke-linejoin="round" d="M34 9h5v30h-5zM8 9l22 15L8 39z"/></svg>
-  </div>`, 1040, 520);
+content('done', `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:22px;color:#fff">
+  <svg class="ln" width="52" height="52" viewBox="0 0 24 24" stroke-width="${(6 * 24 / 52).toFixed(2)}"><path class="ck" pathLength="1" d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+  <span style="font-size:40px;font-weight:600;letter-spacing:-.6px">Профиль создан</span></div>`, 640, 150);
 
-// The slider fill lives in world units so it can follow the rubber-band stretch.
-const fill = add(shape, ''); fill.style.background = '#111'; fill.style.zIndex = 1;
-content('slider', `<div style="width:100%;height:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;color:#fff;padding:0 60px">
-  <svg class="ln" width="60" height="60" viewBox="0 0 24 24" stroke-width="${(SW * 24 / 60).toFixed(3)}">${IC.spk}<g class="w1">${IC.w1}</g><g class="w2">${IC.w2}</g></svg>
-  <span class="pct" style="font-size:48px;font-weight:600;letter-spacing:-.5px">0%</span></div>`, 1000, 160, 2);
-C.slider.style.mixBlendMode = 'difference'; // white over the fill, black over the empty track
+const STEPS = ['Диагностика', 'Профессиональная проба', 'Маршрут', 'Первый отклик'];
+content('prof', `
+  <div class="a" style="left:72px;top:72px;width:116px;height:116px;border-radius:58px;background:#0071e3;color:#fff;font-size:52px;font-weight:600;display:flex;align-items:center;justify-content:center">А</div>
+  <div class="a lab" style="left:216px;top:80px">Личный кабинет</div>
+  <div class="a h1" style="left:216px;top:114px;font-size:54px">Алина</div>
+  <div class="a sub" style="left:72px;top:232px">Ваши интересы, достижения и следующий шаг — в одном месте.</div>
+  <div class="a fl" style="left:72px;top:318px">Прогресс</div><div class="a fl" style="right:72px;top:318px;color:#86868b">0 из 4</div>
+  <div class="a" style="left:72px;top:360px;width:936px;height:10px;border-radius:5px;background:#e8e8ed"></div>
+  ${STEPS.map((s, i) => `<div class="a" style="left:${72 + i * 234}px;top:398px;width:222px">
+    <div style="width:52px;height:52px;border-radius:26px;border:3px solid ${i ? '#d2d2d7' : '#0071e3'};box-sizing:border-box;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:600;color:${i ? '#86868b' : '#0071e3'}">${i + 1}</div>
+    <div style="margin-top:14px;font-size:24px;font-weight:500;line-height:1.3;color:${i ? '#86868b' : '#1d1d1f'}">${s}</div></div>`).join('')}
+  <div class="a" style="left:72px;top:566px;width:936px;height:262px;border-radius:32px;background:#f5f5f7"></div>
+  <div class="a lab" style="left:112px;top:604px">Следующий шаг</div>
+  <div class="a" style="left:112px;top:642px;font-size:40px;font-weight:700;letter-spacing:-1px">Пройдите диагностику</div>
+  <div class="a sub" style="left:112px;top:696px">Она поможет определить подходящие направления.</div>
+  <div class="a pill pb go" style="left:112px;top:746px;width:330px;height:62px;font-size:24px">Начать диагностику</div>`, 1080, 900);
 
-// Tabs: gray labels / knob / white labels clipped to the knob.
-const TABS = ['Вакансии', 'Навыки', 'Пробы'];
-const tabRow = col => `<div style="width:100%;height:100%;display:flex;color:${col}">${TABS.map(s => `<div style="flex:1;display:flex;align-items:center;justify-content:center;font-size:40px;font-weight:500;letter-spacing:-.3px">${s}</div>`).join('')}</div>`;
-content('tabsBg', `<div style="width:100%;height:100%;border-radius:84px;background:#F1F0EE"></div>`, 1080, 168, 1);
-content('tabsG', tabRow('#6E6E73'), 1080, 168, 2);
-const knob = add(shape, ''); knob.style.zIndex = 3;
-content('tabsW', tabRow('#fff'), 1080, 168, 4);
+const Q = [
+  { n: 3, q: 'Что вам интереснее делать в свободное время?', o: ['Собирать и программировать гаджеты', 'Рисовать и придумывать дизайн', 'Помогать людям разобраться в проблеме', 'Организовывать события'] },
+  { n: 4, q: 'Какая задача вам ближе?', o: ['Разобраться, как устроен механизм', 'Сделать красивую презентацию', 'Выслушать и поддержать друга', 'Собрать команду под проект'] }];
+content('diag', `
+  <div class="a lab" style="left:72px;top:76px">Диагностика</div>
+  <div class="a h1" style="left:72px;top:116px;font-size:52px">Интересы и склонности</div>
+  <div class="a fl cnt" style="right:72px;top:84px;color:#86868b"></div>
+  <div class="a" style="left:72px;top:214px;width:936px;height:10px;border-radius:5px;background:#e8e8ed;overflow:hidden"><div class="bar" style="height:100%;background:#0071e3;border-radius:5px"></div></div>
+  ${Q.map((q, k) => `<div class="a qq q${k}" style="left:0;top:0;width:1080px;height:1000px">
+    <div class="a" style="left:72px;top:272px;width:936px;font-size:40px;font-weight:600;letter-spacing:-.8px;line-height:1.22">${q.q}</div>
+    ${q.o.map((o, i) => `<div class="opt o${i}" style="top:380px;transform:translateY(${i * 116}px)"><div class="radio"><i></i></div>${o}</div>`).join('')}</div>`).join('')}
+  <div class="a pill pg" style="left:72px;top:880px;width:200px;height:76px;font-size:26px">Назад</div>
+  <div class="a pill pb nx" style="right:72px;top:880px;width:340px;height:76px;font-size:26px"><span class="a nA">Далее</span><span class="a nB">Показать результат</span></div>`, 1080, 1000);
 
-// Chart
-const CH = { x0: 64, x1: 1056, y0: 420, y1: 744, vals: [48, 62, 57, 84, 101, 128], max: 140, months: ['Сен', 'Окт', 'Ноя', 'Дек', 'Янв', 'Фев'] };
-CH.pts = CH.vals.map((v, i) => [CH.x0 + i * (CH.x1 - CH.x0) / 5, CH.y1 - v / CH.max * (CH.y1 - CH.y0)]);
-function smoothPath(p) {
-  let d = `M${p[0][0]} ${p[0][1]}`;
-  for (let i = 0; i < p.length - 1; i++) {
-    const p0 = p[i - 1] || p[i], p1 = p[i], p2 = p[i + 1], p3 = p[i + 2] || p2, k = 1 / 6;
-    d += ` C${p1[0] + (p2[0] - p0[0]) * k} ${p1[1] + (p2[1] - p0[1]) * k} ${p2[0] - (p3[0] - p1[0]) * k} ${p2[1] - (p3[1] - p1[1]) * k} ${p2[0]} ${p2[1]}`;
-  }
-  return d;
-}
-const LINE = smoothPath(CH.pts);
-content('chart', `<div style="position:relative;width:100%;height:100%">
-  <div class="abs" style="left:64px;top:196px;font-size:34px;color:#6E6E73">Подходящие вакансии</div>
-  <div class="abs num" style="left:60px;top:238px;font-size:112px;font-weight:600;letter-spacing:-4px;line-height:1">0</div>
-  <div class="abs chip" style="left:292px;top:268px;background:#E6F0FC;color:${rgb(ACC)};font-size:30px;font-weight:600;padding:8px 18px;border-radius:40px;transform-origin:0 50%">+24%</div>
-  <svg class="abs" style="left:0;top:0" width="1120" height="860" viewBox="0 0 1120 860">
-    <defs><clipPath id="reveal"><rect class="rv" x="0" y="0" height="860" width="0"/></clipPath></defs>
-    <line x1="64" x2="1056" y1="${CH.y1 + 2}" y2="${CH.y1 + 2}" stroke="#ECEBE8" stroke-width="2"/>
-    <line class="guide" y1="${CH.y0 - 20}" y2="${CH.y1}" stroke="#E2E1DE" stroke-width="2"/>
-    <g clip-path="url(#reveal)">
-      <path d="${LINE} L${CH.x1} ${CH.y1} L${CH.x0} ${CH.y1}Z" fill="${rgb(ACC)}" fill-opacity=".07"/>
-      <path d="${LINE}" fill="none" stroke="${rgb(ACC)}" stroke-width="5" stroke-linecap="round"/>
-    </g>
-    ${CH.pts.map(p => `<circle class="dot" cx="${p[0]}" cy="${p[1]}" r="9" fill="#fff" stroke="${rgb(ACC)}" stroke-width="5"/>`).join('')}
-    ${CH.months.map((m, i) => `<text x="${CH.pts[i][0]}" y="800" text-anchor="middle" font-size="26" fill="#8E8E93" font-family="Geist">${m}</text>`).join('')}
-  </svg>
-  <div class="abs tip" style="left:0;top:0;width:300px;height:100px;border-radius:22px;background:#111;color:#fff;white-space:nowrap">
-    <div class="tipa abs" style="left:24px;top:14px"><div style="font-size:24px;color:#8E8E93">Январь</div><div style="font-size:34px;font-weight:600;margin-top:2px">101 вакансия</div></div>
-    <div class="tipb abs" style="left:24px;top:14px"><div style="font-size:24px;color:#8E8E93">Февраль</div><div style="font-size:34px;font-weight:600;margin-top:2px">128 вакансий</div></div>
-  </div></div>`, 1120, 860, 5);
+content('calc', `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:24px">
+  <svg width="52" height="52" viewBox="0 0 52 52"><circle cx="26" cy="26" r="20" fill="none" stroke="#e8e8ed" stroke-width="6"/>
+  <circle class="arc" cx="26" cy="26" r="20" fill="none" stroke="#0071e3" stroke-width="6" stroke-linecap="round" pathLength="1"/></svg>
+  <span style="font-size:36px;font-weight:600;letter-spacing:-.5px">Считаем результат…</span></div>`, 700, 150);
 
-content('key', `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:8px;color:#fff">
-  ${icon('cmd', 76)}<span style="font-size:96px;font-weight:500;letter-spacing:-2px;line-height:1">K</span></div>`, 280, 280);
+const TOP3 = [['IT и цифровые технологии', 92], ['Инженерия и робототехника', 78], ['Дизайн и медиа', 64]];
+content('res', `
+  <div class="a lab" style="left:72px;top:76px">Результаты</div>
+  <div class="a h1" style="left:72px;top:116px;font-size:52px">Сильные направления</div>
+  <div class="a saved" style="right:72px;top:118px;height:56px;padding:0 22px;border-radius:28px;background:#e8f1fc;color:#0071e3;font-size:22px;font-weight:600;display:flex;align-items:center;gap:10px;transform-origin:100% 50%">${icon('check', 24, 3)}Сохранено в профиле</div>
+  <div class="a sub" style="left:72px;top:200px;width:936px">Порядок — по сумме ответов. Это гипотезы: проверьте их на профпробах.</div>
+  ${TOP3.map(([n], i) => `<div class="a" style="left:72px;top:${322 + i * 150}px;width:936px">
+    <div style="font-size:21px;font-weight:600;color:#86868b">${i + 1} место</div>
+    <div style="font-size:34px;font-weight:600;letter-spacing:-.6px;margin-top:6px">${n}</div>
+    <div class="a sc s${i}" style="right:0;top:26px;font-size:36px;font-weight:700;letter-spacing:-.6px;color:#0071e3">0</div>
+    <div style="margin-top:16px;height:14px;border-radius:7px;background:#e8e8ed"><div class="rb r${i}" style="height:100%;border-radius:7px;background:#0071e3;opacity:${[1, .72, .48][i]};width:0"></div></div></div>`).join('')}
+  <div class="a pill pb pick" style="left:72px;top:812px;width:420px;height:84px;font-size:27px">Подобрать профпробу</div>
+  <div class="a pill pg" style="left:512px;top:812px;width:280px;height:84px;font-size:27px">Отчёт в PDF</div>`, 1080, 960);
 
-const ITEMS = [
-  { t: 'Стажировки', h: 'Работа', i: 'briefcase' }, { t: 'Составить маршрут', h: 'Маршрут', i: 'route' },
-  { t: 'Профессиональные пробы', h: 'Пробы', i: 'flask' }, { t: 'Диагностика интересов', h: 'Тест', i: 'compass' },
-  { t: 'ИИ-помощник', h: 'Чат', i: 'sparkle' }];
-const KEYS = [[b(24.5), 'с'], [b(25), 'ст'], [b(25.5), 'ста']];
-content('pal', `<div style="position:relative;width:100%;height:100%">
-  <div class="abs" style="left:40px;top:44px;color:#111">${icon('search', 40)}</div>
-  <div class="abs" style="left:102px;top:36px;font-size:44px;letter-spacing:-.4px;height:56px;display:flex;align-items:center;white-space:pre">
-    <span class="ph" style="color:#8E8E93;position:absolute;left:0">Поиск по порталу</span><span class="q"></span><span class="caret" style="display:inline-block;width:4px;height:50px;border-radius:2px;background:${rgb(ACC)};margin-left:3px"></span></div>
-  <div class="abs kbd" style="right:40px;top:44px">esc</div>
-  <div class="abs" style="left:0;right:0;top:127px;height:2px;background:#EDECE9"></div>
-  ${ITEMS.map((it, i) => `<div class="row it" data-i="${i}" style="top:0">
-    <div class="ibox">${icon(it.i, 36)}</div>
-    <div class="lbl" style="margin-left:28px;font-size:36px;letter-spacing:-.3px;flex:1;white-space:pre"></div>
-    <div class="hint" style="margin-right:24px;font-size:28px;color:#8E8E93">${it.h}</div>
-    <div class="ent kbd" style="margin-right:24px;display:none;color:#111;padding:6px 10px">${icon('enter', 28)}</div></div>`).join('')}
-  </div>`, 1040, 682, 2);
+const TRIALS = [['3Д моделирование для компьютерных игр', 'cube'], ['Мобильная робототехника', 'robot'], ['Тестирование игрового ПО', 'game']];
+content('trials', `
+  <div class="a lab" style="left:72px;top:76px">Профессиональные пробы</div>
+  <div class="a h1" style="left:72px;top:116px;font-size:50px;white-space:nowrap">Попробуйте профессию на практике</div>
+  <div class="a sub" style="left:72px;top:200px">Запишитесь на профпробу прямо здесь.</div>
+  <div class="a" style="left:72px;top:282px;display:flex;gap:14px">
+    <div class="pill pb" style="height:62px;padding:0 28px;font-size:23px">По диагностике</div>
+    <div class="pill pg" style="height:62px;padding:0 28px;font-size:23px;font-weight:500">Санкт-Петербург</div>
+    <div class="pill pg" style="height:62px;padding:0 28px;font-size:23px;font-weight:500">Онлайн и очно</div></div>
+  ${TRIALS.map(([n, ic], i) => `<div class="card tc${i}" style="top:${396 + i * 222}px">
+    <div class="ibox">${icon(ic, 56)}</div>
+    <div style="flex:1;min-width:0"><div style="font-size:30px;font-weight:600;letter-spacing:-.5px;line-height:1.2;width:470px">${n}</div>
+      <div style="font-size:22px;color:#86868b;margin-top:10px">Академия инженерных технологий · Очно</div></div>
+    <div class="pill pb go" style="width:190px;height:64px;font-size:23px;margin-right:30px;flex:none">Записаться</div></div>`).join('')}
+  <div class="a" style="left:72px;top:1080px;font-size:20px;color:#86868b">Источник проверен · СПб ГБПОУ «Академия инженерных технологий и управления»</div>`, 1080, 1180);
 
-content('toast', `<div style="width:100%;height:100%;display:flex;align-items:center;color:#fff">
-  <div style="width:104px;height:104px;border-radius:52px;background:${rgb(ACC)};margin-left:32px;display:flex;align-items:center;justify-content:center">${icon('check', 56)}</div>
-  <div style="margin-left:28px"><div style="font-size:42px;font-weight:600;letter-spacing:-.5px">Отклик отправлен</div>
-  <div style="font-size:30px;color:#8E8E93;margin-top:4px">Стажировка · Frontend-разработчик</div></div></div>`, 960, 168);
+const SLOTS = ['12 окт · 11:00', '12 окт · 14:00', '19 окт · 11:00'];
+content('modal', `
+  <div class="a lab" style="left:72px;top:76px">Запись на профпробу</div>
+  <div class="a h1" style="left:72px;top:116px;font-size:46px;width:740px;letter-spacing:-1.2px">3Д моделирование для компьютерных игр</div>
+  <div class="a sub" style="left:72px;top:232px;font-size:23px;width:740px">СПб ГБПОУ «Академия инженерных технологий и управления»</div>
+  <div class="a fl" style="left:72px;top:334px">Дата и время</div>
+  ${SLOTS.map((s, i) => `<div class="a chip slot sl${i}" style="left:${72 + i * 244}px;top:374px;width:228px;height:80px">${s}</div>`).join('')}
+  <div class="a fl" style="left:72px;top:494px">ФИО участника</div>
+  <div class="a inp" style="left:72px;top:532px;width:736px">Алина Смирнова</div>
+  <div class="a fl" style="left:72px;top:640px">Школа</div>
+  <div class="a inp" style="left:72px;top:678px;width:736px">ГБОУ СОШ № 123</div>
+  <div class="a cb" style="left:72px;top:800px;width:40px;height:40px;border-radius:11px;border:2.5px solid #c7c7cc;box-sizing:border-box;display:flex;align-items:center;justify-content:center;color:#fff">
+    <svg class="ln" width="26" height="26" viewBox="0 0 24 24" stroke-width="3.6"><path class="ck" pathLength="1" d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+  <div class="a" style="left:134px;top:798px;width:674px;font-size:22px;line-height:1.4;color:#424245">Согласен(на) на обработку персональных данных для записи на профпробу.</div>
+  <div class="a pill pg" style="left:72px;top:920px;width:250px;height:84px;font-size:27px">Отмена</div>
+  <div class="a pill sb" style="left:342px;top:920px;width:466px;height:84px;font-size:27px;color:#fff">Записаться</div>`, 880, 1060);
 
-const cursor = add(stage, `<svg width="46" height="60" viewBox="0 0 23 30"><path d="M1.5 1.5v22.2l5.6-5.1 3.6 8.4 3.9-1.7-3.6-8.2 7.6-.3z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>`, '');
+content('ok', `<div style="width:100%;height:100%;display:flex;align-items:center;color:#fff">
+  <div style="width:112px;height:112px;border-radius:56px;background:#fff;color:#0071e3;margin-left:32px;display:flex;align-items:center;justify-content:center;flex:none">
+    <svg class="ln" width="56" height="56" viewBox="0 0 24 24" stroke-width="3"><path class="ck" pathLength="1" d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+  <div style="margin-left:30px"><div style="font-size:42px;font-weight:700;letter-spacing:-.8px">Вы записаны</div>
+  <div style="font-size:25px;opacity:.82;margin-top:4px">12 октября, 11:00 · с вами свяжутся</div></div></div>`, 900, 176);
+
+const RSTEPS = [['Диагностика', 'ТОП-3: IT, инженерия, дизайн'], ['Профессиональная проба', '3Д моделирование · 12 окт, 11:00'], ['Маршрут', 'Сценарий: широкий набор проб'], ['Первый отклик', 'Стажировки и вакансии']];
+content('route', `
+  <div class="a lab" style="left:72px;top:76px">Маршрут</div>
+  <div class="a h1" style="left:72px;top:116px;font-size:52px">Образовательный маршрут</div>
+  <div class="a sub" style="left:72px;top:198px;width:856px">Не нужно решать всё сразу. Двигайтесь по одному шагу.</div>
+  <div class="a" style="left:72px;top:282px;width:856px;height:84px;border-radius:20px;background:#f5f5f7;display:flex;align-items:center;padding:0 28px;box-sizing:border-box;font-size:24px">
+    <span style="font-weight:600">Не знаю, кем хочу быть</span><span style="color:#86868b;margin-left:12px">· Широкий набор проб</span><span class="rc" style="margin-left:auto;font-weight:600;color:#0071e3"></span></div>
+  <div class="a" style="left:103px;top:470px;width:4px;height:396px;border-radius:2px;background:#e8e8ed"><div class="rl" style="width:100%;background:#0071e3;border-radius:2px"></div></div>
+  ${RSTEPS.map(([n, m], i) => `<div class="a" style="left:72px;top:${436 + i * 132}px;width:856px;height:100px;display:flex;align-items:center">
+    <div class="dot d${i}" style="width:66px;height:66px;border-radius:33px;box-sizing:border-box;border:3px solid #d2d2d7;background:#fff;display:flex;align-items:center;justify-content:center;color:#fff;flex:none;position:relative">
+      <span class="a nn" style="font-size:25px;font-weight:600;color:#86868b">${i + 1}</span>
+      <svg class="ln a" width="34" height="34" viewBox="0 0 24 24" stroke-width="3.4"><path class="ck" pathLength="1" d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+    <div style="margin-left:30px"><div style="font-size:31px;font-weight:600;letter-spacing:-.5px">${n}</div><div style="font-size:23px;color:#86868b;margin-top:4px">${m}</div></div></div>`).join('')}
+  <div class="a pill pg ask" style="left:72px;top:936px;width:420px;height:80px;font-size:26px">Обсудить с помощником</div>`, 1000, 1060);
+
+const ASK = 'Куда записаться на пробу?';
+const ANSWER = 'По вашим результатам подойдут пробы «3Д моделирование для компьютерных игр» и «Мобильная робототехника» в Академии инженерных технологий. Следующий шаг — выберите слот, запись прямо в чате.';
+content('chat', `
+  <div class="a" style="left:56px;top:56px;width:80px;height:80px;border-radius:40px;background:#0071e3;color:#fff;font-size:36px;font-weight:600;display:flex;align-items:center;justify-content:center">Н</div>
+  <div class="a" style="left:160px;top:60px;font-size:32px;font-weight:700;letter-spacing:-.6px">Карьерный AI-помощник</div>
+  <div class="a" style="left:160px;top:102px;font-size:22px;color:#86868b">Карьерный навигатор · AI</div>
+  <div class="a home" style="right:56px;top:74px;font-size:23px;font-weight:600;color:#0071e3;display:flex;align-items:center;gap:8px">${icon('back', 26, 3)}На главную</div>
+  <div class="a" style="left:0;right:0;top:168px;height:2px;background:#f0f0f2"></div>
+  <div class="bub" style="left:56px;top:212px;width:640px;background:#f5f5f7">Помогу найти свой путь. Расскажите, что вам нравится — вместе найдём, с чего начать.</div>
+  <div class="a sug" style="left:56px;top:400px;display:flex;gap:14px">
+    <div class="pill pg" style="height:60px;padding:0 24px;font-size:22px;font-weight:500">Какие направления мне подходят?</div>
+    <div class="pill pg" style="height:60px;padding:0 24px;font-size:22px;font-weight:500">Что добавить в портфолио?</div></div>
+  <div class="bub me" style="right:56px;top:500px;background:#0071e3;color:#fff;transform-origin:100% 100%">${ASK}</div>
+  <div class="bub dots" style="left:56px;top:612px;background:#f5f5f7;display:flex;gap:10px;padding:30px 30px">${'<i style="display:block;width:14px;height:14px;border-radius:7px;background:#86868b"></i>'.repeat(3)}</div>
+  <div class="bub ans" style="left:56px;top:612px;width:780px;background:#f5f5f7"><span class="tx"></span></div>
+  <div class="a acard" style="left:56px;top:900px;width:780px;height:104px;border-radius:24px;border:2px solid #e8e8ed;box-sizing:border-box;display:flex;align-items:center">
+    <div style="width:64px;height:64px;border-radius:16px;background:#e8f1fc;color:#0071e3;display:flex;align-items:center;justify-content:center;margin:0 20px 0 20px">${icon('cube', 34, 3)}</div>
+    <div style="font-size:24px;font-weight:600;flex:1">3Д моделирование · 12 окт</div><div class="pill pb" style="height:54px;padding:0 24px;font-size:21px;margin-right:22px">К записи</div></div>
+  <div class="a" style="left:56px;right:56px;top:1044px;height:96px;border-radius:48px;background:#f5f5f7;display:flex;align-items:center;padding:0 16px 0 34px;box-sizing:border-box">
+    <span class="ci" style="font-size:27px;white-space:pre;flex:1"><span class="ph">О чём поговорим?</span><span class="v"></span><i class="caret"></i></span>
+    <div class="send" style="width:66px;height:66px;border-radius:33px;display:flex;align-items:center;justify-content:center;color:#fff">${icon('up', 32, 3.4)}</div></div>`, 1000, 1200);
+
+const cursor = add(stage, `<svg width="46" height="60" viewBox="0 0 23 30"><path d="M1.5 1.5v22.2l5.6-5.1 3.6 8.4 3.9-1.7-3.6-8.2 7.6-.3z" fill="#1d1d1f" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>`, '');
 cursor.id = 'cursor';
 
-// ---------- timeline ----------
-const PAL_H = n => 128 + 2 + 16 + n * 104 + 16; // palette height (screen px) for n rows
-const SEQ = [ // [beat, state]
-  [0, 'btnHover'], [1, 'load'], [3, 'check'], [4, 'island'], [5, 'player'], [10, 'slider'], [14, 'toggle'], [15, 'toggleOn'],
-  [16, 'tabs'], [19, 'chart'], [23, 'key'], [24, 'pal'], [24.5, 'pal4'], [25, 'pal3'], [25.5, 'pal2'], [26, 'toast'], [27, 'btn']];
-function stateDims(k) {
-  if (k === 'btnHover') return { w: wW('btn') + 7, h: wH('btn'), r: wR('btn'), bg: INK, S: S.btn.S * Z.btn };
-  if (k === 'toggleOn') return { w: wW('toggle'), h: wH('toggle'), r: wR('toggle'), bg: ACC, S: S.toggle.S * Z.toggle };
-  if (/^pal\d$/.test(k)) return { w: wW('pal'), h: PAL_H(+k[3]) / 2, r: wR('pal'), bg: WHT, S: S.pal.S * Z.pal };
-  return { w: wW(k), h: wH(k), r: wR(k), bg: S[k].bg, S: S[k].S * Z[k] };
-}
-const dims = SEQ.map(([bb, k]) => [b(bb), stateDims(k)]);
-const palTop = -wH('pal') / 2;
-const centerY = (d, i) => (/^pal/.test(SEQ[i][1]) ? palTop + d.h / 2 : 0); // palette shrinks with its top edge pinned
+// ---------- timeline (beats) ----------
+const SEQ = [[0, 'hero'], [2, 'reg'], [9, 'load'], [10, 'done'], [11, 'prof'], [13, 'diag'], [17, 'calc'], [18, 'res'],
+  [21, 'trials'], [24, 'modal'], [27, 'ok'], [28, 'route'], [31, 'chat'], [38, 'hero']];
+const WIN = {}; SEQ.forEach(([bb, k], i) => { if (!WIN[k] || k !== 'hero') WIN[k] = [b(bb), b(SEQ[(i + 1) % SEQ.length][0]) + (i === SEQ.length - 1 ? T : 0)]; });
+WIN.hero = [b(38), b(2) + T];
+
+const typed = (txt, t0, dt) => t => txt.slice(0, clamp(Math.floor((wrap(t) - t0) / dt) + 1, 0, txt.length));
+const TYPE = {
+  name: { txt: 'Алина', t0: b(3.75), dt: .125 }, login: { txt: 'alina_2026', t0: b(5.25), dt: .1 },
+  pass: { txt: '••••••••••••', t0: b(6.75), dt: .07 }, ask: { txt: ASK, t0: b(31.75), dt: .055 }};
+for (const k in TYPE) TYPE[k].f = typed(TYPE[k].txt, TYPE[k].t0, TYPE[k].dt);
+const keyTimes = Object.values(TYPE).flatMap(o => [...o.txt].map((_, i) => o.t0 + i * o.dt));
+
+const HOVER = [[b(0.8), 1], [b(2), 0]];
+const HERO_W = t => S.hero.W + 18 * trHover(t);
+const trHover = track(HOVER.map(([t, v]) => [t, v, SP.ui]));
+function dimsOf(k) { const s = S[k]; return { w: s.W / s.S, h: s.H / s.S, r: s.R / s.S, bg: s.bg, S: s.S, cy: s.cy || 0 }; }
+const dims = SEQ.map(([bb, k]) => [b(bb), dimsOf(k)]);
+// shrinking into a dark pill: recolor once it is small, so a big area never flashes mid-tone
+const COLOR_DELAY = { load: .12, done: 0, ok: .12, hero: .12 };
 const trW = track(dims.map(([t, d]) => [t, d.w]));
 const trH = track(dims.map(([t, d]) => [t, d.h]));
 const trR = track(dims.map(([t, d]) => [t, d.r]));
-// Shrinking into a dark state: recolor once the shape is small, so a big area never flashes mid-gray.
-const COLOR_DELAY = { key: .14, toast: .1, toggle: .08 };
+const trCy = track(dims.map(([t, d]) => [t, d.cy]));
 const trBg = track(dims.map(([t, d], i) => [t + (COLOR_DELAY[SEQ[i][1]] || 0), d.bg]), SP.color);
-const trCy = track(dims.map(([t, d], i) => [t, centerY(d, i)]));
-const trCam = track(dims.map(([t, d]) => [t, d.S]), SP.cam);
-const trCamY = track(dims.map(([t, d], i) => [t, centerY(d, i)]), SP.cam);
 
-// shape press feedback
-const trPress = track([1, 5, 15, 24, 27].map(b).flatMap(t => [[t - .07, .965, SP.fast], [t + .06, 1, SP.ui]]));
+// camera: state framing plus focus pushes on the register form
+const FOCUS = [[b(3.4), 1.26, -150], [b(7.6), 1.22, 330], [b(8.7), 1, 0]];
+const camEv = dims.map(([t, d]) => [t, [d.S, 0]]).concat(FOCUS.map(([t, s, y]) => [t, [s, y]]));
+const trCam = track(camEv, SP.cam);
+const trFocus = track([[b(3.4), 1, SP.cam], [b(8.7), 0, SP.cam]]);
 
-// cursor (world coordinates, hotspot = arrow tip)
-const PLAYER_KNOB_Y = (290 - 260) / 2, PROG = p => -232 + 464 * p;
-const P_PLAY0 = 0.28, P_RATE = 0.018;
-const chartW = (x, y) => [(x - 560) / 1.6, (y - 430) / 1.6];
-const pt4 = chartW(...CH.pts[4]), pt5 = chartW(...CH.pts[5]);
-const sL = -wW('slider') / 2, sWd = wW('slider'), S_V0 = 0.46;
-const CUR = [
-  [b(1) + .12, [78, 60]],
-  [b(4) + .1, [72, 12]],
-  [b(5) + .12, [3, 88]],
-  [b(6) + .14, [PROG(P_PLAY0 + (b(7) - b(6)) * P_RATE), PLAYER_KNOB_Y + 2]],
-  [b(7) + .04, [92, 20]],
-  [b(8), [18, 16]],
-  [b(9) + .12, [44, 62]],
-  [b(10) + .12, [sL + sWd * S_V0, 10]],
-  [b(11) + .04, [262, 14]],
-  [b(12), [312, 20]],
-  [b(13) + .12, [250, 44]],
-  [b(14) + .12, [8, 9]],
-  [b(15) + .12, [44, 42]],
-  [b(16) + .12, [6, 9]],
-  [b(17) + .12, [-146, 10]],
-  [b(18) + .14, [-120, 70]],
-  [b(21) - .24, [pt4[0] + 3, pt4[1] + 5]],
-  [b(22) - .24, [pt5[0] + 3, pt5[1] + 5]],
-  [b(23) + .04, [6, 10]],
-  [b(24) + .12, [214, 150]],
-  [b(26) + .12, [118, 12]],
-  [b(27) + .12, [20, 13]],
-];
-// y rides a slightly softer spring than x, so moves arc instead of sliding in straight lines
+// clicks (beats). Every click also pulses the shape a little when it lands on it.
+const CLICK_B = [2, 3, 3.5, 5, 6.5, 8, 9, 13, 14, 15, 16, 17, 21, 24, 25, 26, 27, 31, 31.5, 33.5, 37.5];
+const clicks = CLICK_B.map(b);
+const trPress = track([2, 9, 17, 27].map(b).flatMap(t => [[t - .07, .97, SP.fast], [t + .06, 1, SP.ui]]));
+const trCurS = track(clicks.flatMap(t => [[t - .07, .84, SP.fast], [t + .05, 1, SP.ui]]));
+
+// ---------- layout probing: cursor targets come from real element positions ----------
+function elPos(key, sel, fx = .5, fy = .5) {
+  const root = C[key]; let el = typeof sel === 'string' ? $(root, sel) : sel, x = 0, y = 0;
+  const w = el.offsetWidth, h = el.offsetHeight;
+  let tr = getComputedStyle(el).transform;
+  if (tr && tr !== 'none') { const m = new DOMMatrix(tr); x += m.m41; y += m.m42; }
+  while (el && el !== root) { x += el.offsetLeft; y += el.offsetTop; el = el.offsetParent; }
+  const [W, H] = CW[key], st = dimsOf(key);
+  return [(x + w * fx - W / 2) / st.S, (y + h * fy - H / 2) / st.S + st.cy];
+}
+const P = {
+  hero: elPos('hero', '.pill', .56, .62),
+  seg1: elPos('reg', '.s1', .62, .6), f0: elPos('reg', '.f0', .7, .6), f1: elPos('reg', '.f1', .74, .62), f2: elPos('reg', '.f2', .68, .6),
+  role: elPos('reg', '.r0', .58, .62), sb: elPos('reg', '.sb', .56, .62),
+  go: elPos('prof', '.go', .6, .62), o0: elPos('diag', '.q0 .o0', .44, .6), o1: elPos('diag', '.q1 .o0', .46, .6), nx: elPos('diag', '.nx', .5, .62),
+  pick: elPos('res', '.pick', .55, .62), tc0: elPos('trials', '.tc0', .45, .55), tgo: elPos('trials', '.tc0 .go', .52, .62),
+  sl0: elPos('modal', '.sl0', .56, .6), cb: elPos('modal', '.cb', .6, .66), msb: elPos('modal', '.sb', .56, .62),
+  ask: elPos('route', '.ask', .56, .62), ci: elPos('chat', '.ci', .3, .6), send: elPos('chat', '.send', .56, .62), home: elPos('chat', '.home', .6, .66),
+};
+const CLICK_AT = { 2: 'hero', 3: 'seg1', 3.5: 'f0', 5: 'f1', 6.5: 'f2', 8: 'role', 9: 'sb', 13: 'go', 14: 'o0', 15: 'nx', 16: 'o1', 17: 'nx',
+  21: 'pick', 24: 'tgo', 25: 'sl0', 26: 'cb', 27: 'msb', 31: 'ask', 31.5: 'ci', 33.5: 'send', 37.5: 'home' };
+const CUR = [[.02, P.hero]]; // events must lie inside [0, T) for the wrap to stay seamless
+let prev = -1;
+for (const cb of CLICK_B) {
+  const t = b(cb), p = P[CLICK_AT[cb]];
+  if (cb !== 2) CUR.push([Math.max(prev + .06, t - .42), p]);
+  prev = t;
+}
+// idle positions while states that need no cursor play out; screen-space drift keeps the cursor alive
+CUR.push([b(9.3), [58, 60]], [b(17.3), [210, 58]], [b(19.2), [120, 180]], [b(22.2), P.tc0], [b(27.3), [300, 90]], [b(29), [180, 260]],
+  [b(34.2), [330, 60]], [b(36), [300, 180]], [b(38.4), [120, 380]], [b(39.3), [150, 330]]);
 const trCX = track(CUR.map(([t, p]) => [t, p[0]]), SP.curX);
 const trCY = track(CUR.map(([t, p]) => [t, p[1]]), SP.curY);
-const clicks = [1, 5, 6, 15, 17, 18, 24, 27].map(b);
-const drags = [[b(7), b(9)], [b(11), b(13)]];
-const trCurS = track(clicks.flatMap(t => [[t - .07, .84, SP.fast], [t + .05, 1, SP.ui]])
-  .concat(drags.flatMap(([a, c]) => [[a - .05, .84, SP.fast], [c, 1, SP.ui]])));
 
-// Scrub (drag 1): value follows the cursor while held, keeps playing after release.
-const pressOffset = trCX(b(7)) - PROG(P_PLAY0 + (b(7) - b(6)) * P_RATE);
-function playerP(t) {
-  const x = wrap(t);
-  if (x < b(6)) return P_PLAY0;
-  if (x < b(7)) return P_PLAY0 + (x - b(6)) * P_RATE;
-  if (x < b(9)) return clamp((trCX(x) - pressOffset + 232) / 464);
-  return playerP(b(9) - 1e-6) + (x - b(9)) * P_RATE;
-}
-// Slider (drag 2): value + rubber band past max; on release the band springs back from where it was.
-const sOff = trCX(b(11)) - (sL + sWd * S_V0);
-const RUB = 42;
-function sliderRaw(x) {
-  const cx = trCX(x) - sOff, o = Math.max(0, cx - (sL + sWd));
-  return { v: clamp((cx - sL) / sWd), s: RUB * (1 - Math.exp(-o / RUB)) };
-}
-function slider(t) {
-  const x = wrap(t);
-  if (x < b(11)) return { v: S_V0, s: 0 };
-  if (x < b(13)) return sliderRaw(x);
-  const r = sliderRaw(b(13) - 1e-6);
-  return { v: r.v, s: r.s * (1 - step(x - b(13), 17, .82)) };
-}
-
-// Windowed tracks get a "prime" event while hidden, so they don't spring in from their last target.
-const PRIME = b(10);
-// Knob edges: the leading edge rides a stiff spring, the trailing edge a soft one.
-const tabX = i => [-220 + i * 440 / 3, -220 + (i + 1) * 440 / 3];
-const KN = [ // [t, left, right, direction]
-  [PRIME, -41, 3, 0], [b(15), -3, 41, 1], [b(16), ...tabX(2), 0], [b(17), ...tabX(1), -1], [b(18), ...tabX(0), -1]];
-// direction 0 = grow with the shape, so the knob never outruns the container edge
-const edge = (d, leadIf) => (d === 0 ? SP.shape : d === leadIf ? SP.lead : SP.lag);
-const trKL = track(KN.map(([t, l, , d]) => [t, l, edge(d, -1)]));
-const trKR = track(KN.map(([t, , r, d]) => [t, r, edge(d, 1)]));
-const trKT = track([[PRIME, -22], [b(16), -30]]);
-const trKCol = track([[PRIME, WHT], [b(16), INK]], SP.color);
-const trKSh = track([[PRIME, .28], [b(16), 0]], SP.ui);
-const ROW_Y_CHART = -wH('chart') / 2 + 24 + 35;
-const trRowY = track([[PRIME, 0], [b(19), ROW_Y_CHART]]);
-const trRowBg = track([[PRIME, 0], [b(19), 1]], SP.ui);
-
-const trPP = track([[b(6), 1], [b(10), 0]], SP.fast); // play -> pause morph
-const trPPs = track([[b(6) - .07, .86, SP.fast], [b(6) + .05, 1, SP.ui]]);
-const trKnobS = track([[b(7) - .04, 1.45, SP.ui], [b(9), 1, SP.ui]]);
-const trHover = track([[b(0), 1, SP.ui], [b(1), 0, SP.ui]]);
-const trTipX = track([[PRIME, 0], [b(22), 1]], SP.ui);
-const trChip = track([[b(20), 1, SP.ui], [b(23), 0]]);
-
-// chart line reveal
-const DRAW0 = b(19) + .12, DRAW1 = b(20) + .02;
-const drawP = t => easeInOut((wrap(t) - DRAW0) / (DRAW1 - DRAW0));
-const dotTimes = CH.pts.map(p => { // first time the reveal passes each point (bisection keeps it pure)
-  const f = (p[0] - CH.x0 + 4) / (CH.x1 - CH.x0 + 8); let lo = DRAW0, hi = DRAW1;
-  for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (drawP(m) < f) lo = m; else hi = m; }
-  return hi;
-});
+// ---------- per-screen micro-tracks ----------
+const trSegL = track([[b(2), 6, SP.ui], [b(3), 358, SP.lag]]), trSegR = track([[b(2), 352, SP.ui], [b(3), 710, SP.lead]]);
+const trSubmit = track([[b(2), ACC_OFF], [b(7.9), ACC]], SP.ui);
+const trRole = track([[b(2), 0], [b(8), 1, SP.ui]]);
+const trBar = track([[b(13), 3 / 12], [b(15), 4 / 12], [b(17), 5 / 12]], SP.ui);
+const trSel0 = track([[b(13), 0], [b(14), 1, SP.ui]]), trSel1 = track([[b(13), 0], [b(16), 1, SP.ui]]);
+const trHov = track([[b(21), 0], [b(22.3), 1, SP.ui], [b(24), 0, SP.ui]]);
+const trSlot = track([[b(24), 0], [b(25), 1, SP.ui]]), trCb = track([[b(24), 0], [b(26), 1, SP.ui]]);
+const trMsb = track([[b(24), ACC_OFF], [b(26.05), ACC]], SP.ui);
+const trRL = track([[b(28), 0], [b(28.4), 132, SP.ui], [b(29), 264, SP.ui], [b(30), 330, SP.ui]]);
+const DONE_AT = [b(28.4), b(29), b(30)];
+const trMe = track([[b(31), 0], [b(33.5), 1, SP.ui]]);
 
 // ---------- render ----------
-const blur = (el, px) => { el.style.filter = px > .05 ? `blur(${px.toFixed(2)}px)` : 'none'; };
-function place(el, t, tin, tout, sc, ox, oy, g, opt) {
-  const v = vis(t, tin, tout, ...(opt || []));
-  if (v.o <= 0.001) { el.style.visibility = 'hidden'; return v; }
-  el.style.visibility = 'visible';
-  el.style.opacity = v.o.toFixed(4);
-  blur(el, v.bl);
-  el.style.transform = `translate(${g.w / 2 + ox - g.cx}px,${g.h / 2 + oy - g.cy}px) scale(${sc * v.s}) translate(-50%,-50%)`;
+function place(el, key, t, g, opt) {
+  const [tin, tout] = WIN[key];
+  const v = vis(t, tin, tout, ...(opt || [.12, .24]));
+  el.style.visibility = v.o > .001 ? 'visible' : 'hidden';
+  if (v.o <= .001) return v;
+  el.style.opacity = v.o.toFixed(4); blur(el, v.bl);
+  const [W, H] = CW[key], st = dimsOf(key);
+  el.style.transform = `translate(${g.w / 2 - g.cx}px,${g.h / 2 + st.cy - g.cy}px) scale(${v.s / st.S}) translate(${-W / 2}px,${-H / 2}px)`;
   return v;
 }
+const setChip = (el, k) => { el.style.borderColor = rgb([210 + (0 - 210) * k, 210 + (113 - 210) * k, 215 + (227 - 215) * k]); el.style.background = rgb([255 - 23 * k, 255 - 14 * k, 255 - 3 * k]); el.style.color = k > .5 ? '#0071e3' : '#1d1d1f'; };
+function typeInto(inp, o, t, t1) {
+  const s = o.f(t), active = wrap(t) >= o.t0 - .3 && wrap(t) < t1;
+  const v = $(inp, '.v'); if (v.textContent !== s) v.textContent = s;
+  $(inp, '.ph').style.display = s ? 'none' : '';
+  const blink = (wrap(t) - o.t0 + o.txt.length * o.dt) % 1 < .55 || (wrap(t) >= o.t0 - .05 && wrap(t) < o.t0 + o.txt.length * o.dt + .1);
+  $(inp, '.caret').style.opacity = active && blink ? 1 : 0;
+  inp.style.borderColor = active ? 'rgba(0,113,227,.55)' : 'transparent';
+  inp.style.background = active ? '#fff' : '#f5f5f7';
+}
+const spin = (arc, x, base = 0) => { const len = .2 + .45 * Math.pow(Math.sin(Math.PI * clamp(x / 1.2)), 2); arc.style.strokeDasharray = `${len} 1`; arc.style.transformOrigin = 'center'; arc.style.transformBox = 'fill-box'; arc.style.transform = `rotate(${base - 90 + x * 520}deg)`; };
 
 function seek(tRaw) {
   const t = wrap(tRaw);
-  const sl = slider(t);
   let w = trW(t), h = trH(t), r = trR(t), cy = trCy(t), cx = 0;
-  if (t >= b(10) && t < b(14)) { w += sl.s; cx = sl.s / 2; h *= 1 - .1 * sl.s / RUB; }
+  const inHero = t >= b(38) - .01 || t < b(2.2);
+  if (inHero) w += 18 * trHover(t);
   r = Math.min(r, h / 2, w / 2);
   shape.style.width = w + 'px'; shape.style.height = h + 'px';
   shape.style.left = (cx - w / 2) + 'px'; shape.style.top = (cy - h / 2) + 'px';
@@ -356,116 +380,121 @@ function seek(tRaw) {
   shape.style.transform = `scale(${trPress(t)})`;
   const g = { w, h, cx, cy };
 
-  // Soft-min against "shape fits the frame": the lagging camera may never push a growing shape out of frame.
-  const fit = Math.min(1360 / (w * trPress(t)), 1360 / h), K = .06;
-  const c0 = trCam(t), cam = -K * Math.log(Math.exp(-c0 / K) + Math.exp(-fit / K)), camY = trCamY(t);
+  // camera: soft-min against "shape fits the frame", relaxed while a focus push is active
+  const [c0, fy] = trCam(t), fit = Math.min(1340 / w, 1360 / h), K = .05;
+  const soft = -K * Math.log(Math.exp(-c0 / K) + Math.exp(-fit / K));
+  const cam = mix(soft, c0, trFocus(t));
+  const camY = fy;
   world.style.transform = `translate(720px,720px) scale(${cam}) translate(0px,${-camY}px)`;
 
-  const L = (key, tin, tout, sK, ox = 0, oy = 0, opt) => place(C[key], t, tin, tout, 1 / sK, ox, oy, g, opt);
+  // hero text (outside the shape)
+  { const v = vis(t, WIN.hero[0], WIN.hero[1], .12, .3, .12); show(C.heroText, v);
+    C.heroText.style.transform = `translate(${-650}px,${-420 - 20 * (1 - v.o)}px) scale(${v.s})`; C.heroText.style.transformOrigin = '650px 420px'; }
+  place(C.hero, 'hero', t, g, [.1, .22]);
+  $(C.hero, '.arr').style.transform = `translateX(${(trHover(t) * 8).toFixed(2)}px)`;
 
-  // button
-  L('btn', b(27), b(1) + T, 2.8);
-  $(C.btn, '.arr').style.transform = `translateX(${(trHover(t) * 8).toFixed(2)}px)`;
-  // loader
-  L('load', b(1), b(3), 2.8);
-  { const x = t - b(1), ph = x / BEAT, len = .16 + .5 * Math.pow(Math.sin(Math.PI * clamp(ph / 2)), 2);
-    const arc = $(C.load, '.arc'); arc.style.strokeDasharray = `${len} 1`;
-    arc.style.transformOrigin = '84px 84px';
-    arc.style.transform = `rotate(${-90 + x * 700 + 180 * easeInOut(ph - .5)}deg)`; }
-  // check
-  L('check', b(3), b(4), 3.0);
-  $(C.check, '.ck').style.strokeDasharray = `${easeOut((t - b(3) - .1) / .28)} 1`;
-  // island
-  L('island', b(4), b(5), 2.6);
-  { const x = t - b(4); C.island.querySelectorAll('.eq i').forEach((el, i) => {
-      const beatEnv = Math.exp(-((x + 10 * BEAT) % BEAT) * 7), wv = [.55, 1, .7, .9, .45][i];
-      el.style.height = (14 + 44 * wv * (.35 + .65 * beatEnv) + 5 * Math.sin(x * 9 + i * 1.7)).toFixed(2) + 'px'; }); }
-  // player
-  L('player', b(5), b(10), 2.0, 0, 0, [.13]);
-  { const p = playerP(t), q = trPP(t);
-    $(C.player, '.fill').style.width = (p * 100).toFixed(3) + '%';
-    const kn = $(C.player, '.knob'); kn.style.left = (56 + 928 * p - 14) + 'px'; kn.style.transform = `scale(${trKnobS(t)})`;
-    const tot = 212, sec = Math.round(p * tot), f = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-    $(C.player, '.tl').textContent = f(sec); $(C.player, '.tr').textContent = '−' + f(tot - sec);
-    const d = PLAY.map((quad, qi) => 'M' + quad.map((pt, pi) => [mix(pt[0], PAUSE[qi][pi][0], q), mix(pt[1], PAUSE[qi][pi][1], q)].map(v => v.toFixed(2)).join(' ')).join('L') + 'Z').join('');
-    const pp = $(C.player, '.pp'); pp.firstChild.setAttribute('d', d); pp.style.transform = `scale(${trPPs(t)})`; }
-  // slider
-  L('slider', b(10), b(14), 2.3);
-  { fill.style.visibility = (t >= b(10) && t < b(14) + .1) ? 'visible' : 'hidden';
-    fill.style.opacity = 1 - clamp((t - b(14)) / .09); // the player's black carries straight into the fill
-    fill.style.height = h + 'px';
-    fill.style.width = (sl.v * (w - sl.s) + (sl.v >= 1 ? sl.s : 0)) + 'px';
-    $(C.slider, '.pct').textContent = Math.round(sl.v * 100) + '%';
-    $(C.slider, '.w1').style.opacity = clamp((sl.v - .2) / .1); $(C.slider, '.w2').style.opacity = clamp((sl.v - .6) / .1); }
-  // knob (toggle -> tab indicator)
-  { const kv = vis(t, b(14), b(23), .06, .16), rowY = trRowY(t);
-    const yOff = t >= b(16) ? rowY : 0;
-    const lft = trKL(t), rgt = trKR(t), tp = trKT(t), sh = trKSh(t);
-    knob.style.visibility = kv.o > .001 ? 'visible' : 'hidden';
-    knob.style.opacity = kv.o; blur(knob, kv.bl / 3);
-    knob.style.left = (w / 2 + lft - cx) + 'px'; knob.style.top = (h / 2 + tp + yOff - cy) + 'px';
-    knob.style.width = (rgt - lft) + 'px'; knob.style.height = (-2 * tp) + 'px'; knob.style.borderRadius = (-tp) + 'px';
-    knob.style.background = rgb(trKCol(t));
-    knob.style.boxShadow = `0 1px 2px rgba(0,0,0,${(sh * .6).toFixed(3)}),0 3px 8px rgba(0,0,0,${sh.toFixed(3)})`;
-    const S_T = 2.4, px = v => v * S_T;
-    for (const k of ['tabsBg', 'tabsG', 'tabsW']) L(k, b(16), b(23), S_T, 0, rowY, [.17, .2]);
-    C.tabsBg.style.opacity = (+C.tabsBg.style.opacity || 0) * trRowBg(t);
-    const il = px(lft + 225), ir = 1080 - px(rgt + 225), it = px(tp + 35), ib = px(35 + tp);
-    C.tabsW.style.clipPath = `inset(${it.toFixed(2)}px ${ir.toFixed(2)}px ${ib.toFixed(2)}px ${il.toFixed(2)}px round ${px(-tp).toFixed(2)}px)`; }
-  // chart
-  L('chart', b(19), b(23), 1.6, 0, 0, [.14, .24]);
-  { $(C.chart, '.rv').setAttribute('width', (CH.x0 - 6 + drawP(t) * (CH.x1 - CH.x0 + 12)).toFixed(2));
-    $(C.chart, '.num').textContent = Math.round(128 * easeOut((t - DRAW0) / (b(20) - DRAW0)));
-    const ch = $(C.chart, '.chip'), cs = trChip(t); ch.style.opacity = clamp(cs); ch.style.transform = `scale(${(.8 + .2 * cs).toFixed(4)})`;
-    const tv = vis(t, b(21), b(23), 0, .16), tx = trTipX(t);
-    const hx = mix(CH.pts[4][0], CH.pts[5][0], tx), hy = mix(CH.pts[4][1], CH.pts[5][1], tx);
-    C.chart.querySelectorAll('.dot').forEach((el, i) => {
-      const hov = i === 4 ? tv.o * (1 - tx) : i === 5 ? tv.o * tx : 0;
-      el.setAttribute('r', Math.max(0, 9 * step(t - dotTimes[i], 22, .86) + 5 * hov).toFixed(2)); });
-    const gl = $(C.chart, '.guide'); gl.setAttribute('x1', hx); gl.setAttribute('x2', hx); gl.style.opacity = tv.o;
-    const tip = $(C.chart, '.tip'); tip.style.opacity = tv.o;
-    tip.style.transform = `translate(${clamp(hx - 150, 40, 780).toFixed(2)}px,${(hy - 132 + 8 * (1 - tv.o)).toFixed(2)}px)`;
-    const A = vis(t, b(21), b(22), 0, .16, .08), B = vis(t, b(22), b(23), .08, .16);
-    const ta = $(C.chart, '.tipa'), tb = $(C.chart, '.tipb');
-    ta.style.opacity = A.o; blur(ta, A.bl / 2); tb.style.opacity = B.o; blur(tb, B.bl / 2); }
-  // ⌘K
-  L('key', b(23), b(24), 4.0);
-  // palette: content top pinned to the palette top edge
-  L('pal', b(24), b(26), 2.0, 0, palTop + wH('pal') / 2, [.2, .2]);
-  { let q = ''; for (const [kt, s] of KEYS) if (t >= kt) q = s;
-    const qs = $(C.pal, '.q'); if (qs.textContent !== q) qs.textContent = q;
-    $(C.pal, '.ph').style.opacity = q ? 0 : 1;
-    const typing = KEYS.some(([kt]) => t >= kt - .05 && t < kt + .35) || t >= b(25.5);
-    $(C.pal, '.caret').style.opacity = typing ? 1 : ((Math.floor((t - b(24)) / BEAT) % 2) ? 0 : 1);
-    const steps = ['', ...KEYS.map(k => k[1])], times = [b(24), ...KEYS.map(k => k[0])];
-    C.pal.querySelectorAll('.it').forEach(el => {
-      const i = +el.dataset.i, it = ITEMS[i], lo = it.t.toLowerCase();
-      // row y: one spring per keystroke that changes this row's index among the visible rows
-      let y = 0, prevIdx = null, gone = null;
-      steps.forEach((s, si) => {
-        if (s && !lo.includes(s)) { if (gone === null) gone = times[si]; return; }
-        const idx = ITEMS.slice(0, i).filter(o => !s || o.t.toLowerCase().includes(s)).length;
-        if (prevIdx === null) y = idx; else y += (idx - prevIdx) * step(t - times[si], ...SP.ui);
-        prevIdx = idx; });
-      el.style.top = (146 + y * 104) + 'px';
-      const rv = vis(t, b(24) + i * .035, gone === null ? b(26) : gone, .2, .22, .08);
-      el.style.opacity = rv.o; blur(el, rv.bl / 2);
-      const hl = i === 0; el.style.background = hl ? '#F3F2EF' : 'transparent';
-      $(el, '.hint').style.display = hl ? 'none' : ''; $(el, '.ent').style.display = hl ? '' : 'none';
-      if (hl) $(el, '.ent').style.transform = `scale(${t > b(26) - .06 ? 1 - .12 * (1 - step(t - b(26) + .06, ...SP.ui)) : 1})`;
-      const lbl = $(el, '.lbl'), k = q ? lo.indexOf(q) : -1;
-      const html = k >= 0 ? `<span style="color:#8E8E93">${it.t.slice(0, k)}</span><span style="color:#111;font-weight:600">${it.t.slice(k, k + q.length)}</span><span style="color:#8E8E93">${it.t.slice(k + q.length)}</span>` : `<span style="color:#111">${it.t}</span>`;
-      if (lbl.dataset.h !== html) { lbl.innerHTML = html; lbl.dataset.h = html; } }); }
-  // toast
-  L('toast', b(26), b(27), 2.4);
+  // register
+  if (place(C.reg, 'reg', t, g).o > 0) {
+    const R = C.reg;
+    show($(R, '.tA'), vis(t, -1, b(3))); show($(R, '.tB'), vis(t, b(3), T + 1));
+    const kn = $(R, '.knob'), l = trSegL(t), rr = trSegR(t); kn.style.left = l + 'px'; kn.style.width = (rr - l) + 'px';
+    const k = clamp((t - b(3)) / .15); $(R, '.s0').style.color = rgb([29 + 105 * k, 29 + 105 * k, 31 + 107 * k]); $(R, '.s1').style.color = rgb([134 - 105 * k, 134 - 105 * k, 139 - 108 * k]);
+    typeInto($(R, '.f0'), TYPE.name, t, b(5)); typeInto($(R, '.f1'), TYPE.login, t, b(6.5)); typeInto($(R, '.f2'), TYPE.pass, t, b(7.9));
+    setChip($(R, '.r0'), trRole(t)); setChip($(R, '.r1'), 0); setChip($(R, '.r2'), 0);
+    $(R, '.sb').style.background = rgb(trSubmit(t));
+    $(R, '.sb').style.transform = `scale(${t > b(9) - .07 && t < b(9) + .3 ? 1 - .03 * (1 - step(t - b(9) + .07, ...SP.ui)) : 1})`;
+  }
+  if (place(C.load, 'load', t, g, [.1, .2]).o > 0) spin($(C.load, '.arc'), t - b(9));
+  if (place(C.done, 'done', t, g, [.1, .2]).o > 0) $(C.done, '.ck').style.strokeDasharray = `${easeOut((t - b(10) - .12) / .3)} 1`;
 
-  // cursor in screen space
+  // profile
+  if (place(C.prof, 'prof', t, g).o > 0) {
+    $(C.prof, '.go').style.transform = `scale(${t > b(13) - .07 ? 1 - .04 * (1 - step(t - b(13) + .07, ...SP.ui)) : 1})`;
+  }
+  // diagnostics
+  if (place(C.diag, 'diag', t, g).o > 0) {
+    const D = C.diag, n = t < b(15) ? 3 : 4;
+    const cnt = $(D, '.cnt'), s = `Вопрос ${n} из 12`; if (cnt.textContent !== s) cnt.textContent = s;
+    $(D, '.bar').style.width = (trBar(t) * 100).toFixed(3) + '%';
+    [0, 1].forEach(q => {
+      const tin = q ? b(15) : -1, tout = q ? T + 1 : b(15);
+      show($(D, '.q' + q + ' > div'), vis(t, tin, tout, .09, .24));
+      $$(D, `.q${q} .opt`).forEach((o, i) => {
+        const v = vis(t, q ? tin + .04 * i : tin, tout, .09, .24); show(o, v, .5);
+        o.style.transform = `translateY(${i * 116 + (1 - v.o) * 14 * (q ? 1 : 0)}px)`;
+        const sel = i === 0 ? (q ? trSel1(t) : trSel0(t)) : 0;
+        o.style.borderColor = rgb([232 - 232 * sel, 232 - 119 * sel, 237 - 10 * sel]); o.style.background = rgb([255 - 15 * sel, 255 - 9 * sel, 255 - 2 * sel]);
+        $(o, '.radio').style.borderColor = sel > .5 ? '#0071e3' : '#c7c7cc'; $(o, '.radio i').style.transform = `scale(${sel})`;
+      });
+    });
+    show($(D, '.nA'), vis(t, -1, b(15.5))); show($(D, '.nB'), vis(t, b(15.5), T + 1));
+    $(D, '.nx').style.transform = `scale(${[15, 17].reduce((m, c) => (t > b(c) - .07 && t < b(c) + .4 ? 1 - .04 * (1 - step(t - b(c) + .07, ...SP.ui)) : m), 1)})`;
+  }
+  if (place(C.calc, 'calc', t, g, [.12, .2]).o > 0) spin($(C.calc, '.arc'), t - b(17));
+  // results
+  if (place(C.res, 'res', t, g).o > 0) {
+    TOP3.forEach(([, v], i) => {
+      const p = easeOut((t - b(18) - .3 - i * .14) / .9);
+      $(C.res, '.r' + i).style.width = (v * p).toFixed(2) + '%';
+      const sc = $(C.res, '.s' + i), s = String(Math.round(v * p)); if (sc.textContent !== s) sc.textContent = s;
+    });
+    const sv = step(t - b(19.5), ...SP.ui); const sa = $(C.res, '.saved'); sa.style.opacity = sv; sa.style.transform = `scale(${.85 + .15 * sv})`;
+    $(C.res, '.pick').style.transform = `scale(${t > b(21) - .07 ? 1 - .04 * (1 - step(t - b(21) + .07, ...SP.ui)) : 1})`;
+  }
+  // trials
+  if (place(C.trials, 'trials', t, g).o > 0) {
+    const hv = trHov(t);
+    TRIALS.forEach((_, i) => {
+      const c = $(C.trials, '.tc' + i), v = vis(t, b(21) + .1 + i * .07, WIN.trials[1], .1, .26); show(c, v, .5);
+      c.style.transform = `translateY(${(1 - v.o) * 24 - (i === 0 ? 4 * hv : 0)}px)`;
+      c.style.background = i === 0 ? rgb([245 - 10 * hv, 245 - 10 * hv, 247 - 8 * hv]) : '#f5f5f7';
+    });
+  }
+  // modal
+  if (place(C.modal, 'modal', t, g).o > 0) {
+    setChip($(C.modal, '.sl0'), trSlot(t)); setChip($(C.modal, '.sl1'), 0); setChip($(C.modal, '.sl2'), 0);
+    const k = trCb(t), cb = $(C.modal, '.cb'); cb.style.background = rgb([255 - 255 * k, 255 - 142 * k, 255 - 28 * k]); cb.style.borderColor = k > .3 ? '#0071e3' : '#c7c7cc';
+    $(cb, '.ck').style.strokeDasharray = `${easeOut((t - b(26) - .05) / .22)} 1`;
+    $(C.modal, '.sb').style.background = rgb(trMsb(t));
+  }
+  if (place(C.ok, 'ok', t, g, [.1, .2]).o > 0) $(C.ok, '.ck').style.strokeDasharray = `${easeOut((t - b(27) - .15) / .3)} 1`;
+  // route
+  if (place(C.route, 'route', t, g).o > 0) {
+    $(C.route, '.rl').style.height = trRL(t).toFixed(2) + 'px';
+    let n = 0;
+    RSTEPS.forEach((_, i) => {
+      const d = $(C.route, '.d' + i), k = i < 3 ? step(t - DONE_AT[i], ...SP.ui) : 0; if (i < 3 && t >= DONE_AT[i]) n++;
+      d.style.background = rgb([255 - 255 * k, 255 - 142 * k, 255 - 28 * k]); d.style.borderColor = k > .3 ? '#0071e3' : (i === 3 ? '#d2d2d7' : '#d2d2d7');
+      $(d, '.nn').style.opacity = 1 - clamp(k * 3); $(d, '.ck').style.strokeDasharray = `${i < 3 ? easeOut((t - DONE_AT[i] - .06) / .26) : 0} 1`;
+      d.style.transform = `scale(${1 + .08 * Math.sin(Math.PI * clamp((t - DONE_AT[i]) / .3)) * (i < 3 ? 1 : 0)})`;
+    });
+    const rc = $(C.route, '.rc'), s = `${n} из 4`; if (rc.textContent !== s) rc.textContent = s;
+  }
+  // chat
+  if (place(C.chat, 'chat', t, g).o > 0) {
+    const H = C.chat, ci = $(H, '.ci'), sent = t >= b(33.5);
+    const s = sent ? '' : TYPE.ask.f(t), v = $(ci, '.v'); if (v.textContent !== s) v.textContent = s;
+    $(ci, '.ph').style.display = s ? 'none' : '';
+    $(ci, '.caret').style.opacity = t > b(31.5) && !sent ? 1 : 0;
+    $(H, '.send').style.background = s ? '#0071e3' : '#c7c7cc';
+    $(H, '.send').style.transform = `scale(${t > b(33.5) - .07 && t < b(34) ? 1 - .1 * (1 - step(t - b(33.5) + .07, ...SP.ui)) : 1})`;
+    const me = trMe(t), m = $(H, '.me'); m.style.opacity = clamp(me * 1.4); m.style.transform = `translateY(${(1 - me) * 40}px) scale(${.9 + .1 * me})`;
+    show($(H, '.sug'), vis(t, -1, b(33.5), .09, .22, .15));
+    const dv = vis(t, b(33.9), b(34.8), .02, .14, .08); show($(H, '.dots'), dv);
+    $$(H, '.dots i').forEach((el, i) => { el.style.transform = `translateY(${-6 * Math.max(0, Math.sin((t * 7 - i * .8)))}px)`; });
+    const av = vis(t, b(34.8), T + 1, 0, .2); show($(H, '.ans'), av, .5);
+    const n = Math.floor(clamp((t - b(34.9)) / 1.25) * ANSWER.length), tx = $(H, '.tx'), st = ANSWER.slice(0, n);
+    if (tx.textContent !== st) tx.textContent = st;
+    const cv = vis(t, b(37) - .1, T + 1, 0, .24); show($(H, '.acard'), cv, .5); $(H, '.acard').style.transform = `translateY(${(1 - cv.o) * 18}px)`;
+  }
+
+  // cursor
   const sx = 720 + trCX(t) * cam, sy = 720 + (trCY(t) - camY) * cam;
   cursor.style.transform = `translate(${sx.toFixed(2)}px,${sy.toFixed(2)}px) scale(${trCurS(t).toFixed(4)}) translate(-3px,-3px)`;
 }
 
 window.T = T; window.BEAT = BEAT; window.seek = seek;
-window.EVENTS = { clicks, drags, keys: KEYS.map(k => k[0]).concat([b(26)]), hovers: [b(21), b(22)], toggle: b(15), success: [b(3), b(26)] };
+window.EVENTS = { clicks, drags: [], keys: keyTimes, hovers: [b(0.8), b(22.3)], toggle: b(3), success: [b(10), b(27)] };
 const qp = new URLSearchParams(location.search);
 if (qp.has('t')) seek(+qp.get('t'));
 else if (qp.has('play')) { const t0 = performance.now(); const loop = () => { seek((performance.now() - t0) / 1000); requestAnimationFrame(loop); }; loop(); }

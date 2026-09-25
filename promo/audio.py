@@ -11,7 +11,7 @@ SRC = root / "cand" / "130.mp3"
 SRC_BPM = 122.0          # measured from the kick envelope (grid.py / bpm.py)
 SRC_PHASE = 0.1205       # first kick-grid beat (s)
 START_BEAT = 65          # downbeat (index % 4 == 1) at the top of an 8-bar phrase inside the steady section
-BEAT, T = 0.5, 14.0
+BEAT, T = 0.5, 20.0
 
 
 def load(path, sr=SR, filt=None):
@@ -44,10 +44,10 @@ def music():
     x = load(SRC, filt=f"atrim=start={t0 - pad}:duration={T * (SRC_BPM / 120) + 2 * pad},asetpts=N/SR/TB,atempo={ratio:.6f}")
     off = pad / ratio
     seg = lambda o: x[int(round(o * SR)):int(round(o * SR)) + int(T * SR)]
-    shift = float(np.nanmedian(beat_peaks(seg(off), 28) - np.arange(28) * BEAT))
+    shift = float(np.nanmedian(beat_peaks(seg(off), 40) - np.arange(40) * BEAT))
     off += shift
     y = seg(off).copy()
-    return y, beat_peaks(y, 28) - np.arange(28) * BEAT, shift
+    return y, beat_peaks(y, 40) - np.arange(40) * BEAT, shift
 
 
 # ---- UI sounds (mono) ----

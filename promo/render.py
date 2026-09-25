@@ -7,7 +7,7 @@ import asyncio, json, pathlib, subprocess, sys
 from playwright.async_api import async_playwright
 
 root = pathlib.Path(__file__).parent
-FPS, SUB, T = 60, 4, 32.0
+FPS, SUB, T = 60, 4, 48.0
 N = int(T * FPS * SUB)
 sub = root / "out" / "sub"
 WORKERS = 4

@@ -10,8 +10,8 @@ root = pathlib.Path(__file__).parent
 SRC = root / "cand" / "130.mp3"
 SRC_BPM = 122.0          # measured from the kick envelope (grid.py / bpm.py)
 SRC_PHASE = 0.1205       # first kick-grid beat (s)
-START_BEAT = 65          # downbeat (index % 4 == 1) at the top of an 8-bar phrase inside the steady section
-BEAT, T = 0.5, 32.0
+START_BEAT = 33          # downbeat (index % 4 == 1) at the top of an 8-bar phrase inside the steady section
+BEAT, T = 0.5, 48.0
 
 
 def load(path, sr=SR, filt=None):
@@ -44,10 +44,10 @@ def music():
     x = load(SRC, filt=f"atrim=start={t0 - pad}:duration={T * (SRC_BPM / 120) + 2 * pad},asetpts=N/SR/TB,atempo={ratio:.6f}")
     off = pad / ratio
     seg = lambda o: x[int(round(o * SR)):int(round(o * SR)) + int(T * SR)]
-    shift = float(np.nanmedian(beat_peaks(seg(off), 64) - np.arange(64) * BEAT))
+    shift = float(np.nanmedian(beat_peaks(seg(off), 96) - np.arange(96) * BEAT))
     off += shift
     y = seg(off).copy()
-    return y, beat_peaks(y, 64) - np.arange(64) * BEAT, shift
+    return y, beat_peaks(y, 96) - np.arange(96) * BEAT, shift
 
 
 # ---- UI sounds (mono) ----
@@ -125,6 +125,7 @@ def main():
         place(ui, snd_pop() * .5, t); n_snd += 1
     for t in ev["whoosh"]:
         place(ui, snd_swish(), t); n_snd += 1
+    place(ui, snd_swish(), ev["ai"]); n_snd += 1
     for t in ev["success"]:
         place(ui, snd_chime(), t); n_snd += 1
     mix = y * .78 + ui[:, None] * .5

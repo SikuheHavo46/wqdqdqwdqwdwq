@@ -24,6 +24,6 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         ts = [(f"t{float(a):06.3f}", float(a)) for a in sys.argv[1:]]
     else:
-        ts = [(f"b{i:02d}", i * 0.5 + 0.42) for i in range(64)]  # just before the next beat: settled state
+        ts = [(f"b{i:02d}", i * 0.5 + 0.42) for i in range(96)]  # just before the next beat: settled state
     asyncio.run(main(ts))
     print("ok", len(ts))

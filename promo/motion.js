@@ -3,8 +3,9 @@
 window.READY = (async () => {
 await Promise.all(['400', '600', '700'].flatMap(wt => [document.fonts.load(`${wt} 30px Inter`, 'Кк'), document.fonts.load(`${wt} 30px Inter`, 'Kk')]));
 // ---------- timing ----------
-const BPM = 120, BEAT = 60 / BPM, BARS = 16, T = BARS * 4 * BEAT; // 32 s, one 16-bar phrase
-const b = n => n * BEAT;
+const BPM = 120, BEAT = 60 / BPM, BARS = 24, T = BARS * 4 * BEAT; // 48 s
+// Story time: one story unit = 1.5 music beats, so every hold is longer while events stay on the eighth-note grid.
+const K = 1.5, b = n => n * BEAT * K;
 const wrap = t => ((t % T) + T) % T;
 const rel = (t, tc) => { let d = wrap(t) - wrap(tc); if (d > T / 2) d -= T; if (d < -T / 2) d += T; return d; };
 const clamp = (x, a = 0, c = 1) => Math.min(c, Math.max(a, x));
@@ -98,6 +99,7 @@ const SCR = {
   reg: { W: 1040, H: 924, R: 56, S: 1, bg: WHT, top: -612 },
   regC: { W: 1040, H: 1224, R: 56, S: 1, bg: WHT, top: -612, content: 'reg' },
   load: { W: 150, H: 150, R: 75, S: 1.8, bg: ACC },
+  ai: { W: 700, H: 150, R: 75, S: 1.5, bg: ACC },
   made: { W: 700, H: 150, R: 75, S: 1.5, bg: ACC },
   diag: { W: 1100, H: 1100, R: 56, S: 1, bg: WHT },
   calc: { W: 760, H: 150, R: 75, S: 1.5, bg: WHT },
@@ -130,10 +132,9 @@ content('hero', `<div class="pill" style="width:100%;height:100%;color:#fff;font
 // ---- chapter card ("Четыре спокойных шага" copy from the site) ----
 const CHAP = [['Профиль', 'за минуту'], ['Сильные', 'направления'], ['Опыт', 'на практике'], ['Реальные', 'вакансии']];
 content('ch', `<div style="width:100%;height:100%;color:#fff">
-  <div class="a" style="left:88px;top:78px;font-size:32px;font-weight:600;opacity:.78;display:flex;height:40px;line-height:40px">Шаг 0<span style="display:inline-block;height:40px;overflow:hidden"><span class="dg" style="display:block">${[0, 1, 2, 3, 4].map(d => `<span style="display:block;height:40px">${d}</span>`).join('')}</span></span></div>
+  <div class="a" style="left:88px;top:78px;font-size:32px;font-weight:600;opacity:.85;display:flex;height:40px;line-height:40px;white-space:pre">Шаг <span style="display:inline-block;height:40px;overflow:hidden"><span class="dg" style="display:block">${[0, 1, 2, 3, 4].map(d => `<span style="display:block;height:40px">${d}</span>`).join('')}</span></span> из 4</div>
   ${CHAP.map((l, k) => `<div class="a chh chh${k}" style="left:0;top:0;width:100%;height:100%">
-    ${l.map((s, i) => `<div class="mask" style="left:88px;top:${146 + i * 112}px;height:120px;width:860px"><div class="ln${i}" style="font-size:108px;font-weight:700;letter-spacing:-4px;line-height:116px">${s}</div></div>`).join('')}</div>`).join('')}
-  <div class="a" style="right:88px;top:84px;font-size:26px;font-weight:600;opacity:.6">из 4</div></div>`);
+    ${l.map((s, i) => `<div class="mask" style="left:88px;top:${146 + i * 112}px;height:120px;width:860px"><div class="ln${i}" style="font-size:108px;font-weight:700;letter-spacing:-4px;line-height:116px">${s}</div></div>`).join('')}</div>`).join('')}</div>`);
 
 // ---- registration (anchored to its top edge: the form grows downward when "Создать аккаунт" adds fields) ----
 content('reg', `
@@ -156,6 +157,8 @@ content('reg', `
 content('load', `<svg width="150" height="150" viewBox="0 0 150 150">
   <circle cx="75" cy="75" r="34" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="8"/>
   <circle class="arc" cx="75" cy="75" r="34" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" pathLength="1"/></svg>`);
+content('ai', `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:20px;color:#fff">
+  <span class="sp">${icon('spark', 50, 4)}</span><span style="font-size:40px;font-weight:700;letter-spacing:-.8px">Карьерный AI-помощник</span></div>`);
 content('made', `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:22px;color:#fff">
   ${checkSvg(54, 6)}<span style="font-size:42px;font-weight:700;letter-spacing:-.8px">Профиль создан</span></div>`);
 
@@ -308,7 +311,7 @@ cursor.id = 'cursor';
 
 // ---------- timeline (beats) ----------
 const SEQ = [[2, 'ch'], [4, 'reg'], [5, 'regC'], [11, 'load'], [12, 'made'], [14, 'ch'], [16, 'diag'], [20, 'calc'], [21, 'res'],
-  [25, 'ch'], [27, 'trials'], [29, 'modal'], [32, 'ok'], [34, 'ch'], [36, 'jobs'], [41, 'jobsR'], [43, 'chat'], [49, 'prof'], [58, 'hero']];
+  [25, 'ch'], [27, 'trials'], [29, 'modal'], [32, 'ok'], [34, 'ch'], [36, 'jobs'], [41, 'jobsR'], [43, 'ai'], [44.5, 'chat'], [50.5, 'prof'], [58, 'hero']];
 const CHAP_AT = [2, 14, 25, 34];
 const ckey = k => SCR[k].content || k;
 const WINS = {};
@@ -351,7 +354,7 @@ const SHOTS = [ // [beat, scale, x, y]
   [6, 1.3, 0, at('reg', '.f0')[1]], [7, 1.3, 0, at('reg', '.f1')[1]], [8.5, 1.3, 0, at('reg', '.f2')[1]], [9.7, 1, 0, 0, 'rel'],
   [22, 1.24, 0, at('res', '.row1', .5, .5)[1]], [24, 1, 0, 0, 'rel'],
   [37, 1.28, 0, (at('jobs', '.kw')[1] + at('jobs', '.rg')[1]) / 2], [39.8, 1, 0, 0, 'rel'],
-  [53, 1.26, 0, at('prof', '.pl1', .5, 1)[1] + 20], [56.5, 1, 0, 0, 'rel']];
+  [54, 1.26, 0, at('prof', '.pl1', .5, 1)[1] + 20], [57, 1, 0, 0, 'rel']];
 function stateAt(beat) { let k = SEQ[SEQ.length - 1][1]; for (const [bb, kk] of SEQ) if (bb <= beat) k = kk; return dimsOf(k); }
 const camEv = dims.map(([t, d]) => [t, [d.S, 0, d.camY]]).concat(SHOTS.map(([bb, s, x, y, m]) => {
   const d = stateAt(bb); return [b(bb), m === 'rel' ? [d.S, 0, d.camY] : [s, x, y]];
@@ -371,7 +374,7 @@ const CLICKS = { 2: ['hero', '.pill', .8, .66], 5: ['reg', '.s1', .78, .62], 6: 
   10: ['reg', '.r0', .8, .64], 11: ['reg', '.sb', .78, .64], 17: ['diag', '.q0 .o0', .86, .6], 18: ['diag', '.nx', .82, .64], 19: ['diag', '.q1 .o0', .86, .6],
   20: ['diag', '.nx', .84, .64], 25: ['res', '.pick', .82, .64], 29: ['trials', '.tc0 .go', .8, .64], 30: ['modal', '.sl0', .8, .64], 31: ['modal', '.cb', .62, .7],
   32: ['modal', '.sb', .8, .64], 37: ['jobs', '.kw', .88, .6], 38.5: ['jobs', '.rg', .9, .6], 40: ['jobs', '.find', .84, .64], 43: ['jobs', '.ask', .84, .66],
-  44: ['chat', '.cp1', .86, .64], 49: ['chat', '.me', .8, .66] };
+  45.5: ['chat', '.cp1', .86, .64], 50.5: ['chat', '.me', .8, .66] };
 const clicks = Object.keys(CLICKS).map(Number).sort((p, q) => p - q);
 const P = {}; for (const c of clicks) P[c] = at(...CLICKS[c]);
 const hovS = [330, 272]; // "Смотреть путь" sits outside the shape, right of «Начать»
@@ -383,8 +386,8 @@ for (const c of clicks) {
   prevT = b(c);
 }
 CUR.push([b(11.55), [120, 110]], [b(12.8), [240, 90]], [b(14.6), [330, 230]], [b(20.6), [300, 120]], [b(21.8), [330, 40]], [b(27.4), at('trials', '.tc0', .56, .5)],
-  [b(32.6), [340, 130]], [b(34.6), [330, 250]], [b(40.6), [300, 40]], [b(41.7), at('jobs', '.jc0', .6, .5)], [b(44.6), [300, 120]], [b(46.2), [420, -20]],
-  [b(49.7), [360, 200]], [b(52), [420, 300]], [b(55), [440, 420]], [b(58.2), [760, 640]], [b(61.6), [620, 560]]);
+  [b(32.6), [340, 130]], [b(34.6), [330, 250]], [b(40.6), [300, 40]], [b(41.7), at('jobs', '.jc0', .6, .5)], [b(43.4), [80, 60]], [b(46.1), [300, 120]], [b(47.7), [420, -20]],
+  [b(51.2), [360, 200]], [b(53), [420, 300]], [b(55.5), [440, 420]], [b(58.2), [760, 640]], [b(61.6), [620, 560]]);
 const trCX = track(CUR.map(([t, p]) => [t, p[0]]), SP.curX);
 const trCY = track(CUR.map(([t, p]) => [t, p[1]]), SP.curY);
 const trCurS = track(clicks.map(b).flatMap(t => [[t - .07, .84, SP.fast], [t + .05, 1, SP.ui]]));
@@ -407,15 +410,15 @@ const trSlot = track([[PRIME, 0], [b(30), 1, SP.ui]]), trCb = track([[PRIME, 0],
 const trMsb = track([[PRIME, ACC_OFF], [b(31.05), ACC]], SP.ui);
 const trFindC = track([[PRIME, ACC_OFF], [b(38.8), ACC]], SP.ui);
 const trHovJ = track([[PRIME, 0], [b(42), 1, SP.ui], [b(43), 0, SP.ui]]);
-const trFly = track([[PRIME, 0], [b(44), 1, SP.ui]]);
-const DONE = [50, 50.5, 51, 51.5].map(b);
+const trFly = track([[PRIME, 0], [b(45.5), 1, SP.ui]]);
+const DONE = [51.3, 51.8, 52.3, 52.8].map(b);
 
 // step bar
 const bA = $(bar, '.bA'), bB = $(bar, '.bB'), bk = $(bar, '.bk'), bwc = $(bar, '.bwc');
 const items = $$(bar, '.bw .bi').map(el => [el.offsetLeft + 8, el.offsetLeft + 8 + el.offsetWidth]);
 const wA = bA.offsetWidth, wB = bB.offsetWidth;
 const trBarW = track([[b(2.5), wB], [b(58), wA]]);
-const KN = [[b(59), 0, 0], [b(14), 1, 1], [b(25), 2, 1], [b(34), 3, 1], [b(52), -1, 1]]; // [t, item | -1 = all, direction]
+const KN = [[b(59), 0, 0], [b(14), 1, 1], [b(25), 2, 1], [b(34), 3, 1], [b(53), -1, 1]]; // [t, item | -1 = all, direction]
 const kx = i => (i < 0 ? [items[0][0], items[3][1]] : items[i]);
 const trKL = track(KN.map(([t, i, d]) => [t, kx(i)[0], i < 0 ? SP.lead : d > 0 ? SP.lag : SP.ui]));
 const trKR = track(KN.map(([t, i, d]) => [t, kx(i)[1], i < 0 ? SP.lag : d > 0 ? SP.lead : SP.ui]));
@@ -520,6 +523,7 @@ function seek(tRaw) {
     sb.style.transform = `translateY(${(-300 * (1 - ins)).toFixed(2)}px) scale(${1 - .03 * dip(t, b(11))})`;
   }
   if (place('load', t, g, [.06, .18]).o > 0) spin($(C.load, '.arc'), t - b(11));
+  if (place('ai', t, g, [.06, .18]).o > 0) $(C.ai, '.sp').style.transform = `rotate(${(90 * step(t - b(43) - .1, ...SP.ui)).toFixed(2)}deg) scale(${1 + .15 * pulse(t, b(43) + .1, .4)})`;
   if (place('made', t, g, [.06, .18]).o > 0) draw($(C.made, '.ck'), t, b(12) + .15);
 
   // diagnostics
@@ -538,7 +542,7 @@ function seek(tRaw) {
         $(o, '.radio').style.borderColor = sel > .5 ? '#0071e3' : '#c7c7cc'; $(o, '.radio i').style.transform = `scale(${sel})`;
       });
     });
-    show($(D, '.nA'), vis(t, -1, b(18.3))); show($(D, '.nB'), vis(t, b(18.3), T + 1));
+    show($(D, '.nA'), vis(t, -1, b(18.3))); show($(D, '.nB'), vis(t, b(18.3), T + 1, .02, .16));
     const nx = $(D, '.nx'); nx.style.transform = `scale(${1 - .04 * (dip(t, b(18)) + dip(t, b(20)))})`;
   }
   if (place('calc', t, g, [.06, .18]).o > 0) spin($(C.calc, '.arc'), t - b(20));
@@ -582,7 +586,7 @@ function seek(tRaw) {
     const J = C.jobs;
     typeInto($(J, '.kw'), TYPE.kw, t, b(38.5)); typeInto($(J, '.rg'), TYPE.rg, t, b(39.8));
     const f = $(J, '.find'); f.style.background = rgb(trFindC(t)); f.style.transform = `scale(${1 - .03 * dip(t, b(40))})`;
-    show($(J, '.fA'), vis(t, b(41), b(40.05), 0, .2)); show($(J, '.fB'), vis(t, b(40.05), b(41), 0, .14));
+    show($(J, '.fA'), vis(t, b(41), b(40.05) + T, 0, .2)); show($(J, '.fB'), vis(t, b(40.05), b(41), 0, .14));
     spin($(J, '.fB .arc'), t - b(40));
     JOBS.forEach((_, i) => {
       const c = $(J, '.jc' + i), v = vis(t, b(41) + .06 + i * .1, T + 1, .1, .28); show(c, v, .5);
@@ -597,19 +601,19 @@ function seek(tRaw) {
   if (place('chat', t, g).o > 0) {
     const H = C.chat, fly = trFly(t), c1 = $(H, '.cp1');
     CHIPS.forEach((_, i) => {
-      const el = $(H, '.cp' + i), v = vis(t, b(43) + .16 + i * .07, i === 1 ? T + 1 : b(44), .1, .24, .12);
+      const el = $(H, '.cp' + i), v = vis(t, b(44.5) + .16 + i * .07, i === 1 ? T + 1 : b(45.5), .1, .24, .12);
       show(el, v, .5); if (i !== 1) el.style.transform = `translateY(${(1 - v.o) * 14}px)`;
     });
     const dx = 1040 - 56 - c1.offsetWidth - 56;
-    c1.style.transform = `translateX(${(dx * fly).toFixed(2)}px) scale(${1 - .04 * dip(t, b(44))})`;
+    c1.style.transform = `translateX(${(dx * fly).toFixed(2)}px) scale(${1 - .04 * dip(t, b(45.5))})`;
     c1.style.background = rgb(mixC(WHT, ACC, clamp(fly * 1.2))); c1.style.color = fly > .45 ? '#fff' : '#1d1d1f';
     c1.style.borderColor = rgb(mixC(G2, ACC, clamp(fly * 1.2)));
     c1.style.top = (392 + 84 - 84 * fly).toFixed(2) + 'px';
-    const dv = vis(t, b(44.7), b(45.9), .02, .16, .08); show($(H, '.dots'), dv);
+    const dv = vis(t, b(46), b(47), .02, .16, .08); show($(H, '.dots'), dv);
     $$(H, '.dots i').forEach((el, i) => { el.style.transform = `translateY(${(-7 * Math.max(0, Math.sin(t * 8 - i * .9))).toFixed(2)}px)`; });
-    const av = vis(t, b(45.9), T + 1, 0, .2); show($(H, '.ans'), av, .5);
-    txt($(H, '.tx'), ANSWER.slice(0, Math.floor(clamp((t - b(46)) / 1.25) * ANSWER.length)));
-    press($(H, '.me'), t, b(49), .05);
+    const av = vis(t, b(47), T + 1, 0, .2); show($(H, '.ans'), av, .5);
+    txt($(H, '.tx'), ANSWER.slice(0, Math.floor(clamp((t - b(47.05)) / 2.4) * ANSWER.length)));
+    press($(H, '.me'), t, b(50.5), .05);
   }
 
   // profile finale
@@ -623,11 +627,11 @@ function seek(tRaw) {
     });
     txt($(F, '.pc'), `${n} из 4`);
     $(F, '.pf').style.width = (25 * STEPS.reduce((s, _, i) => s + step(t - DONE[i], ...SP.ui), 0)).toFixed(3) + '%';
-    const bx = vis(t, b(52.4), T + 1, 0, .3); show($(F, '.pbox'), bx, 0); show($(F, '.pb0'), bx, .4);
+    const bx = vis(t, b(53.3), T + 1, 0, .3); show($(F, '.pbox'), bx, 0); show($(F, '.pb0'), bx, .4);
     $(F, '.pbox').style.transform = `translateY(${(1 - bx.o) * 30}px) scale(${.97 + .03 * bx.o})`;
-    rise($(F, '.pl1'), t, b(53)); rise($(F, '.pl2'), t, b(53.5));
-    const s3 = vis(t, b(54), T + 1, 0, .3); show($(F, '.pb3'), s3, .4);
-    const s4 = step(t - b(55), ...SP.ui), p4 = $(F, '.pb4'); p4.style.opacity = clamp(s4); p4.style.transform = `scale(${.85 + .15 * s4})`;
+    rise($(F, '.pl1'), t, b(54)); rise($(F, '.pl2'), t, b(54.5));
+    const s3 = vis(t, b(55), T + 1, 0, .3); show($(F, '.pb3'), s3, .4);
+    const s4 = step(t - b(56), ...SP.ui), p4 = $(F, '.pb4'); p4.style.opacity = clamp(s4); p4.style.transform = `scale(${.85 + .15 * s4})`;
   }
 
   // step bar
@@ -653,7 +657,7 @@ function seek(tRaw) {
 }
 
 window.T = T; window.BEAT = BEAT; window.seek = seek;
-window.EVENTS = { clicks: clicks.map(b), keys: keyTimes, hovers: [b(63), b(0.9), b(27.9), b(42)], success: [b(12), b(32), b(52)],
+window.EVENTS = { clicks: clicks.map(b), keys: keyTimes, hovers: [b(63), b(0.9), b(27.9), b(42)], ai: b(43), success: [b(12), b(32), b(52.8)],
   ticks: BAR_DONE.concat(DONE), whoosh: CHAP_AT.map(b).concat([b(58)]) };
 const qp = new URLSearchParams(location.search);
 if (qp.has('t')) seek(+qp.get('t'));

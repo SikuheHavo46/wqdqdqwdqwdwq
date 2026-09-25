@@ -7,7 +7,7 @@ import asyncio, json, pathlib, subprocess, sys
 from playwright.async_api import async_playwright
 
 root = pathlib.Path(__file__).parent
-FPS, SUB, T = 60, 4, 20.0
+FPS, SUB, T = 60, 4, 32.0
 N = int(T * FPS * SUB)
 sub = root / "out" / "sub"
 WORKERS = 4
@@ -17,7 +17,9 @@ async def worker(p, ids):
     br = await p.chromium.launch()
     pg = await br.new_page(viewport={"width": 1440, "height": 1440})
     await pg.goto((root / "index.html").as_uri())
-    await pg.evaluate("document.fonts.ready")
+    await pg.evaluate("window.READY")
+    # The first screenshot after load rasterises text slightly differently; discard it so frame 0 matches the loop end.
+    await pg.evaluate("seek(0)"); await pg.screenshot()
     for i in ids:
         f = sub / f"{i:05d}.png"
         if f.exists():
@@ -31,6 +33,7 @@ async def events():
     async with async_playwright() as p:
         br = await p.chromium.launch(); pg = await br.new_page()
         await pg.goto((root / "index.html").as_uri())
+        await pg.evaluate("window.READY")
         (root / "out").mkdir(exist_ok=True)
         (root / "out" / "events.json").write_text(json.dumps(await pg.evaluate("EVENTS")))
         await br.close()

@@ -11,7 +11,7 @@ SRC = root / "cand" / "130.mp3"
 SRC_BPM = 122.0          # measured from the kick envelope (grid.py / bpm.py)
 SRC_PHASE = 0.1205       # first kick-grid beat (s)
 START_BEAT = 65          # downbeat (index % 4 == 1) at the top of an 8-bar phrase inside the steady section
-BEAT, T = 0.5, 20.0
+BEAT, T = 0.5, 32.0
 
 
 def load(path, sr=SR, filt=None):
@@ -44,10 +44,10 @@ def music():
     x = load(SRC, filt=f"atrim=start={t0 - pad}:duration={T * (SRC_BPM / 120) + 2 * pad},asetpts=N/SR/TB,atempo={ratio:.6f}")
     off = pad / ratio
     seg = lambda o: x[int(round(o * SR)):int(round(o * SR)) + int(T * SR)]
-    shift = float(np.nanmedian(beat_peaks(seg(off), 40) - np.arange(40) * BEAT))
+    shift = float(np.nanmedian(beat_peaks(seg(off), 64) - np.arange(64) * BEAT))
     off += shift
     y = seg(off).copy()
-    return y, beat_peaks(y, 40) - np.arange(40) * BEAT, shift
+    return y, beat_peaks(y, 64) - np.arange(64) * BEAT, shift
 
 
 # ---- UI sounds (mono) ----
@@ -92,6 +92,15 @@ def snd_chime():
     return .32 * (a + .8 * b)
 
 
+def snd_swish():
+    """Soft air swish for chapter cards: band-passed noise with a rising centre, gentle attack."""
+    n = int(.34 * SR); t = np.arange(n) / SR
+    x = np.random.default_rng(7).standard_normal(n)
+    X = np.fft.rfft(x); f = np.fft.rfftfreq(n, 1 / SR); X[(f < 700) | (f > 7000)] = 0
+    x = np.fft.irfft(X, n) * np.sin(np.pi * np.clip(t / .34, 0, 1)) ** 2 * (0.4 + 0.6 * t / .34)
+    return .35 * x / np.abs(x).max()
+
+
 def peak_index(s):
     return int(np.argmax(np.convolve(np.abs(s), np.ones(48) / 48, "same")))
 
@@ -107,18 +116,20 @@ def main():
     ev = json.loads((root / "out" / "events.json").read_text())
     ui = np.zeros(len(y)); n_snd = 0
     for i, t in enumerate(ev["clicks"]):
-        place(ui, snd_pop() if abs(t - ev["toggle"]) < 1e-6 else snd_click(i), t); n_snd += 1
-    for i, (a, c) in enumerate(ev["drags"]):
-        place(ui, snd_click(20 + i, 1900, .8), a); place(ui, snd_soft(), c); n_snd += 2
+        place(ui, snd_click(i), t); n_snd += 1
     for i, t in enumerate(ev["keys"]):
-        place(ui, snd_key(i) * (1.3 if i == len(ev["keys"]) - 1 else 1), t); n_snd += 1
+        place(ui, snd_key(i), t); n_snd += 1
     for t in ev["hovers"]:
-        place(ui, snd_soft(.25), t); n_snd += 1
+        place(ui, snd_soft(.22), t); n_snd += 1
+    for t in ev["ticks"]:
+        place(ui, snd_pop() * .5, t); n_snd += 1
+    for t in ev["whoosh"]:
+        place(ui, snd_swish(), t); n_snd += 1
     for t in ev["success"]:
         place(ui, snd_chime(), t); n_snd += 1
     mix = y * .78 + ui[:, None] * .5
-    # loop seam: 4 ms equal-power blend of the tail into the head so the wrap is click-free
-    n = int(.004 * SR); w = np.linspace(0, 1, n)[:, None]
+    # loop seam: 20 ms equal-power blend of the tail into the head so the wrap is click-free
+    n = int(.02 * SR); w = np.linspace(0, 1, n)[:, None]
     mix[:n] = mix[:n] * np.sqrt(w) + mix[-n:] * np.sqrt(1 - w)
     peak = np.abs(mix).max(); mix *= min(1.0, .89 / peak)
     with wave.open(str(root / "out" / "audio.wav"), "wb") as f:
